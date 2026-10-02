@@ -225,7 +225,10 @@ class Conversations
             ->whereNull('m.deleted_at')
             ->where(fn ($w) => $w->whereNull('p.last_read_message_id')->orWhereColumn('m.id', '>', 'p.last_read_message_id'))
             ->groupBy('p.conversation_id')
-            ->selectRaw('p.conversation_id as cid, count(*) as n');
+            ->select('p.conversation_id as cid')
+            // 🚨 Not selectRaw for the column: raw SQL skips the table prefix,
+            // and the alias `p` is prefixed like a table on a prefixed forum.
+            ->selectRaw('count(*) as n');
 
         if ($conversationIds !== null) {
             $q->whereIn('p.conversation_id', $conversationIds);

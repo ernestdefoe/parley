@@ -2,6 +2,7 @@
 
 namespace Ernestdefoe\Parley;
 
+use Flarum\Discussion\Discussion;
 use Flarum\User\User;
 use Illuminate\Database\ConnectionInterface;
 
@@ -40,6 +41,21 @@ class PresenceStore
         $place = in_array($where['place'] ?? '', self::PLACES, true) ? $where['place'] : 'other';
         $now = date('Y-m-d H:i:s');
 
+        /*
+         * 🚨 The discussion id comes from the visitor's URL, so it can name a
+         * discussion that was deleted, never existed, or that this person
+         * cannot see. The first two break the foreign key and 500 the
+         * heartbeat; the third should not be recorded at all. One query
+         * settles all three.
+         */
+        $discussionId = $this->positiveOrNull($where['discussionId'] ?? null);
+        if ($discussionId && ! ($actor && Discussion::whereVisibleTo($actor)->where('discussions.id', $discussionId)->exists())) {
+            $discussionId = null;
+        }
+        if (! $discussionId && in_array($place, ['discussion', 'reply'], true)) {
+            $place = 'other';
+        }
+
         $existing = $this->db->table('parley_presence')->where('visitor_key', $visitorKey)->first(['status', 'away_since']);
 
         // Away keeps the moment it started, so the list can say "idle 14m"
@@ -57,8 +73,8 @@ class PresenceStore
                 'user_id' => $actor && ! $actor->isGuest() ? $actor->id : null,
                 'status' => $status,
                 'place' => $place,
-                'discussion_id' => $this->positiveOrNull($where['discussionId'] ?? null),
-                'near_number' => $this->positiveOrNull($where['near'] ?? null),
+                'discussion_id' => $discussionId,
+                'near_number' => $discussionId ? $this->positiveOrNull($where['near'] ?? null) : null,
                 'tag_id' => $this->positiveOrNull($where['tagId'] ?? null),
                 'away_since' => $awaySince,
                 'last_seen_at' => $now,

@@ -36,7 +36,9 @@ class PeopleController extends Controller
         $like = '%'.addcslashes($q, '%_\\').'%';
 
         $users = User::query()->whereVisibleTo($actor)
-            ->where(fn ($w) => $w->where('users.username', 'like', $like)->orWhere('users.display_name', 'like', $like))
+            // Display names are worked out by a driver, not stored, so the
+            // username is what can be searched.
+            ->where('users.username', 'like', $like)
             ->where('users.id', '!=', $actor->id)
             ->with('groups')
             ->orderBy('users.username')

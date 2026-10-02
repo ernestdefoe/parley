@@ -52,7 +52,8 @@ export function activityHref(p) {
   const a = p.activity;
   if (!a) return null;
   if (a.discussionId) {
-    return app.route('discussion.near', { id: a.discussionId + (a.slug ? '-' + a.slug : ''), near: a.near || 1 });
+    // The slug driver already leads with the id: `12-the-reading-room`.
+    return app.route('discussion.near', { id: a.slug || a.discussionId, near: a.near || 1 });
   }
   if (a.tagSlug) return app.route('tag', { tags: a.tagSlug });
   return null;
