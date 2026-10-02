@@ -6,6 +6,15 @@ const url = (path) => app.forum.attribute('apiUrl') + '/parley' + path;
 const call = (method, path, body, extra = {}) => app.request({ method, url: url(path), body, ...extra });
 
 export default {
+  rooms: () => call('GET', '/rooms', undefined, { background: true, errorHandler: () => {} }),
+  joinRoom: (id) => call('POST', `/rooms/${id}/join`),
+  leaveRoom: (id) => call('POST', `/rooms/${id}/leave`),
+  /** A page closing says goodbye; a beacon outlives the page. */
+  leave() {
+    const data = new FormData();
+    data.append('csrfToken', app.session.csrfToken);
+    navigator.sendBeacon?.(url('/leave'), data);
+  },
   heartbeat: (body) => call('POST', '/heartbeat', body, { background: true, errorHandler: () => {} }),
   conversations: () => call('GET', '/conversations'),
   open: (userId) => call('POST', '/conversations', { userId }),

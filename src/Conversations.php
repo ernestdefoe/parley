@@ -4,6 +4,7 @@ namespace Ernestdefoe\Parley;
 
 use Carbon\Carbon;
 use Ernestdefoe\Parley\Notification\NewMessageBlueprint;
+use Ernestdefoe\Parley\Notification\RoomMentionBlueprint;
 use Flarum\Foundation\ValidationException;
 use Flarum\Locale\TranslatorInterface;
 use Flarum\Notification\Notification;
@@ -39,7 +40,8 @@ class Conversations
         protected PresenceStore $presence,
         protected NotificationSyncer $notifications,
         protected TranslatorInterface $translator,
-        protected Cache $cache
+        protected Cache $cache,
+        protected Rooms $rooms
     ) {
     }
 
@@ -88,7 +90,17 @@ class Conversations
     {
         $conversation = $this->db->table('parley_conversations')->find($id);
 
-        if (! $conversation || ! $this->isParticipant($id, $actor->id)) {
+        if (! $conversation) {
+            throw new ModelNotFoundException();
+        }
+
+        // A room is open to everyone who can see it; a direct conversation
+        // only to the people in it.
+        $allowed = $this->rooms->isRoom($conversation)
+            ? $this->rooms->canView($conversation, $actor)
+            : $this->isParticipant($id, $actor->id);
+
+        if (! $allowed) {
             throw new ModelNotFoundException();
         }
 
@@ -121,6 +133,7 @@ class Conversations
         $rows = $this->db->table('parley_participants as p')
             ->join('parley_conversations as c', 'c.id', '=', 'p.conversation_id')
             ->where('p.user_id', $viewer->id)
+            ->where('c.type', 'direct')
             ->whereNotNull('c.last_message_id')
             ->where(fn ($q) => $q->whereNull('p.hidden_at')->orWhereColumn('c.last_message_at', '>', 'p.hidden_at'))
             ->orderByDesc('c.last_message_at')
@@ -157,7 +170,10 @@ class Conversations
 
         $ids = array_map(fn ($r) => (int) $r->id, $rows);
 
-        $participants = $this->db->table('parley_participants')->whereIn('conversation_id', $ids)
+        // A room's members can number in the hundreds and are not drawn in its
+        // header, so only direct conversations load theirs.
+        $directIds = array_map(fn ($r) => (int) $r->id, array_filter($rows, fn ($r) => ! $this->rooms->isRoom($r)));
+        $participants = $directIds === [] ? collect() : $this->db->table('parley_participants')->whereIn('conversation_id', $directIds)
             ->get(['conversation_id', 'user_id', 'last_read_message_id']);
 
         $userIds = $participants->pluck('user_id')->map(fn ($id) => (int) $id)->unique()->all();
@@ -194,6 +210,8 @@ class Conversations
 
             $out[] = [
                 'id' => $id,
+                'type' => $this->rooms->isRoom($row) ? 'room' : 'direct',
+                'room' => $this->rooms->isRoom($row) ? $this->rooms->card($row) : null,
                 'isGroup' => (bool) $row->is_group,
                 'title' => $row->title,
                 'participants' => $others,
@@ -280,7 +298,15 @@ class Conversations
         $replyIds = array_values(array_filter(array_map(fn ($r) => (int) $r->reply_to_id, $rows)));
         $replies = $replyIds === [] ? collect() : $this->db->table('parley_messages')->whereIn('id', $replyIds)->get()->keyBy('id');
 
-        return array_map(function ($r) use ($reactions, $replies) {
+        // Each message carries its author: in a room the client has not met
+        // most of the people talking, and one query here beats one per name.
+        $authorIds = array_values(array_unique(array_filter(array_merge(
+            array_map(fn ($r) => (int) $r->user_id, $rows),
+            $replies->pluck('user_id')->map(fn ($id) => (int) $id)->all()
+        ))));
+        $authors = $authorIds === [] ? collect() : User::query()->whereIn('id', $authorIds)->with('groups')->get()->keyBy('id');
+
+        return array_map(function ($r) use ($reactions, $replies, $authors) {
             $deleted = $r->deleted_at !== null;
             $reply = $r->reply_to_id ? $replies->get($r->reply_to_id) : null;
 
@@ -288,12 +314,14 @@ class Conversations
                 'id' => (int) $r->id,
                 'conversationId' => (int) $r->conversation_id,
                 'userId' => $r->user_id ? (int) $r->user_id : null,
+                'author' => $r->user_id && $authors->get((int) $r->user_id) ? $this->people->card($authors->get((int) $r->user_id)) : null,
                 'type' => $r->type,
                 'body' => $deleted ? null : $r->body,
                 'meta' => $deleted || $r->meta === null ? null : json_decode($r->meta, true),
                 'replyTo' => $reply ? [
                     'id' => (int) $reply->id,
                     'userId' => $reply->user_id ? (int) $reply->user_id : null,
+                    'authorName' => $reply->user_id && $authors->get((int) $reply->user_id) ? $authors->get((int) $reply->user_id)->display_name : null,
                     'excerpt' => $reply->deleted_at ? null : ($reply->type === 'image' ? null : mb_substr((string) $reply->body, 0, 120)),
                     'type' => $reply->type,
                 ] : null,
@@ -343,6 +371,11 @@ class Conversations
 
         $now = date('Y-m-d H:i:s');
 
+        // Posting in a room joins it.
+        if ($this->rooms->isRoom($conversation)) {
+            $this->rooms->join($conversation, $actor);
+        }
+
         $id = $this->db->table('parley_messages')->insertGetId([
             'conversation_id' => $conversation->id,
             'user_id' => $actor->id,
@@ -364,6 +397,17 @@ class Conversations
             ->update(['last_read_message_id' => $id]);
 
         $payload = $this->payloads([$this->message($id)])[0];
+
+        if ($this->rooms->isRoom($conversation)) {
+            $members = $this->rooms->audience($conversation, $this->participantIds((int) $conversation->id));
+            $this->broadcaster->toUsers($members, 'message', ['message' => $payload]);
+            if ($type === 'text') {
+                $this->notifyMentions($conversation, $actor, (string) $body, $id);
+            }
+
+            return $payload;
+        }
+
         $recipients = $this->participantIds((int) $conversation->id);
 
         // The sender's own other tabs need it too.
@@ -391,7 +435,19 @@ class Conversations
 
     public function delete(int $messageId, User $actor): array
     {
-        $this->ownMessage($messageId, $actor);
+        $message = $this->message($messageId);
+        $conversation = $message ? $this->db->table('parley_conversations')->find($message->conversation_id) : null;
+
+        // Rooms are public, so moderators keep them tidy. Direct conversations
+        // stay private: there, only the author can remove a message.
+        $moderating = $conversation && $this->rooms->isRoom($conversation)
+            && $this->rooms->canView($conversation, $actor)
+            && $actor->hasPermission(Gate::MODERATE)
+            && ! $message->deleted_at;
+
+        if (! $moderating) {
+            $this->ownMessage($messageId, $actor);
+        }
 
         $this->db->table('parley_messages')->where('id', $messageId)
             ->update(['deleted_at' => date('Y-m-d H:i:s')]);
@@ -408,7 +464,7 @@ class Conversations
         }
 
         $message = $this->message($messageId);
-        if (! $message || $message->deleted_at || ! $this->isParticipant((int) $message->conversation_id, $actor->id)) {
+        if (! $message || $message->deleted_at || ! $this->canSee((int) $message->conversation_id, $actor)) {
             throw new ModelNotFoundException();
         }
 
@@ -440,7 +496,9 @@ class Conversations
             ->update(['last_read_message_id' => min($messageId, (int) $conversation->last_message_id)]);
 
         if ($updated) {
-            $this->broadcaster->toUsers($this->participantIds((int) $conversation->id), 'read', [
+            // Nobody needs to know who has read a room; your own other tabs do.
+            $readers = $this->rooms->isRoom($conversation) ? [$actor->id] : $this->participantIds((int) $conversation->id);
+            $this->broadcaster->toUsers($readers, 'read', [
                 'conversationId' => (int) $conversation->id,
                 'userId' => $actor->id,
                 'messageId' => min($messageId, (int) $conversation->last_message_id),
@@ -465,6 +523,12 @@ class Conversations
         $this->cache->put($key, 1, 2);
 
         $others = array_values(array_diff($this->participantIds((int) $conversation->id), [$actor->id]));
+
+        // In a room, only members on the site now can see the dots.
+        if ($this->rooms->isRoom($conversation)) {
+            $others = $this->rooms->audience($conversation, array_keys($this->presence->onlineAmong($others)));
+        }
+
         $this->broadcaster->toUsers($others, 'typing', [
             'conversationId' => (int) $conversation->id,
             'userId' => $actor->id,
@@ -487,15 +551,61 @@ class Conversations
 
     // ── Internals ───────────────────────────────────────────────────────────
 
+    /** Room: can see it. Direct: is in it. */
+    private function canSee(int $conversationId, User $actor): bool
+    {
+        $conversation = $this->db->table('parley_conversations')->find($conversationId);
+
+        if (! $conversation) {
+            return false;
+        }
+
+        return $this->rooms->isRoom($conversation)
+            ? $this->rooms->canView($conversation, $actor)
+            : $this->isParticipant($conversationId, $actor->id);
+    }
+
+    /**
+     * @username in a room alerts that person — once per message, only if they
+     * can see the room, and never the sender.
+     */
+    private function notifyMentions(object $room, User $actor, string $body, int $messageId): void
+    {
+        if (! preg_match_all('/(?<![\w@])@([A-Za-z0-9_\-.]{2,30})/u', $body, $m)) {
+            return;
+        }
+
+        $names = array_slice(array_unique(array_map('mb_strtolower', $m[1])), 0, 10);
+        $users = User::query()->whereIn('username', $names)->where('id', '!=', $actor->id)->get()
+            ->filter(fn (User $u) => $this->rooms->canView($room, $u) && ! $this->relationsBlock($actor, $u))
+            ->values()->all();
+
+        if ($users !== []) {
+            $this->notifications->sync(new RoomMentionBlueprint($actor, (int) $room->id, $messageId), $users);
+        }
+    }
+
+    private function relationsBlock(User $a, User $b): bool
+    {
+        return $this->db->table('parley_blocks')
+            ->where(fn ($q) => $q->where('user_id', $a->id)->where('blocked_id', $b->id))
+            ->orWhere(fn ($q) => $q->where('user_id', $b->id)->where('blocked_id', $a->id))
+            ->exists();
+    }
+
     private function guardSend(object $conversation, User $actor): void
     {
         if (! $this->gate->canUse($actor)) {
             throw new PermissionDeniedException();
         }
 
-        // A one-to-one conversation is re-checked on every send: a block or a
-        // "nobody" setting applies to conversations that already exist.
-        if (! $conversation->is_group) {
+        if ($this->rooms->isRoom($conversation)) {
+            if ($reason = $this->rooms->postRefusal($conversation, $actor)) {
+                $this->refuse($reason, null);
+            }
+        } elseif (! $conversation->is_group) {
+            // A one-to-one conversation is re-checked on every send: a block or a
+            // "nobody" setting applies to conversations that already exist.
             $otherId = collect($this->participantIds((int) $conversation->id))->first(fn ($id) => $id !== $actor->id);
             $other = $otherId ? User::find($otherId) : null;
 
@@ -521,7 +631,7 @@ class Conversations
     {
         $message = $this->message($messageId);
 
-        if (! $message || ! $this->isParticipant((int) $message->conversation_id, $actor->id)) {
+        if (! $message || ! $this->canSee((int) $message->conversation_id, $actor)) {
             throw new ModelNotFoundException();
         }
 
@@ -535,8 +645,14 @@ class Conversations
     private function changed(int $messageId): array
     {
         $payload = $this->payloads([$this->message($messageId)])[0];
+        $conversation = $this->db->table('parley_conversations')->find($payload['conversationId']);
+        $members = $this->participantIds($payload['conversationId']);
 
-        $this->broadcaster->toUsers($this->participantIds($payload['conversationId']), 'messageChanged', ['message' => $payload]);
+        if ($conversation && $this->rooms->isRoom($conversation)) {
+            $members = $this->rooms->audience($conversation, $members);
+        }
+
+        $this->broadcaster->toUsers($members, 'messageChanged', ['message' => $payload]);
 
         return $payload;
     }

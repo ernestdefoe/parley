@@ -4,7 +4,7 @@ import extractText from 'flarum/common/utils/extractText';
 import Avatar from './Avatar';
 import Icons from '../icons';
 import api from '../api';
-import { runPosition, needsDivider, clock, tally, linkParts } from '../util';
+import { runPosition, needsDivider, clock, tally, linkParts, mentionParts } from '../util';
 
 const t = (key, params) => app.translator.trans('ernestdefoe-parley.forum.window.' + key, params);
 
@@ -50,6 +50,8 @@ export default class MessageList extends Component {
     const msgs = conv.messages;
     const meId = Number(app.session.user.id());
     const peer = conv.summary.participants[0] || {};
+    const isRoom = conv.summary.type === 'room';
+    const authorOf = (msg) => msg.author || app.parley.card(msg.userId) || conv.summary.participants.find((p) => p.id === msg.userId) || { displayName: '?' };
     const lastMine = msgs.map((x) => x.userId).lastIndexOf(meId);
     const seenId = Math.max(0, ...Object.values(conv.summary.seenBy || {}).map((v) => v || 0));
     const typers = Object.keys(conv.typing || {}).map(Number);
@@ -72,8 +74,14 @@ export default class MessageList extends Component {
       const mine = msg.userId === meId;
       const who = mine ? 'me' : 'them';
       const pos = runPosition(msgs, i);
-      const author = mine ? null : conv.summary.participants.find((p) => p.id === msg.userId) || { displayName: '?' };
+      const author = mine ? null : authorOf(msg);
       const showFace = !mine && (pos === 'last' || pos === 'single');
+
+      // In a room, the name goes over the first bubble of each run, as in a
+      // Messenger group: the face alone does not say who is talking.
+      if (isRoom && !mine && (pos === 'first' || pos === 'single')) {
+        out.push(<div className="pl-author">{author.displayName}</div>);
+      }
 
       out.push(
         <div className={`pl-row ${who} ${pos === 'single' ? '' : pos} ${pos === 'first' || pos === 'single' ? 'gap' : ''}`} title={clock(msg.createdAt)}>
@@ -101,10 +109,10 @@ export default class MessageList extends Component {
       }
     });
 
-    if (!msgs.length) out.push(<div className="pl-empty">{t('say_hello', { name: peer.displayName })}</div>);
+    if (!msgs.length) out.push(<div className="pl-empty">{isRoom ? app.translator.trans('ernestdefoe-parley.forum.rooms.empty') : t('say_hello', { name: peer.displayName })}</div>);
 
     typers.forEach((uid) => {
-      const p = conv.summary.participants.find((x) => x.id === uid);
+      const p = conv.summary.participants.find((x) => x.id === uid) || app.parley.card(uid);
       if (p)
         out.push(
           <div className="pl-typing" aria-label={extractText(t('typing', { name: p.displayName }))}>
@@ -157,7 +165,9 @@ export default class MessageList extends Component {
       <div className="pl-bub">
         {quote}
         {linkParts(msg.body || '').map((part) =>
-          typeof part === 'string' ? part : <a href={part.url} target="_blank" rel="nofollow ugc noopener">{part.url}</a>
+          typeof part === 'string'
+            ? mentionParts(part).map((bit) => (typeof bit === 'string' ? bit : <b className="pl-mention">@{bit.username}</b>))
+            : <a href={part.url} target="_blank" rel="nofollow ugc noopener">{part.url}</a>
         )}
         {msg.editedAt ? <span className="pl-edited"> {t('edited')}</span> : null}
       </div>
@@ -215,7 +225,7 @@ export default class MessageList extends Component {
           done();
           setTimeout(() => document.getElementById(`Parley-input-${id}`)?.focus(), 0);
         }}>{t('edit')}</button> : null}
-        {mine ? <button className="danger" onclick={() => (this.confirmDelete = msg.id)}>{t('delete')}</button> : null}
+        {mine || (this.attrs.conv.summary.type === 'room' && s.config.canModerate) ? <button className="danger" onclick={() => (this.confirmDelete = msg.id)}>{t('delete')}</button> : null}
         {!mine ? <button className="danger" onclick={() => {
           s.reporting = { conversationId: id, message: msg };
           done();

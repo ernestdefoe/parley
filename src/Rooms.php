@@ -1,0 +1,293 @@
+<?php
+
+namespace Ernestdefoe\Parley;
+
+use Carbon\Carbon;
+use Flarum\Foundation\ValidationException;
+use Flarum\Locale\TranslatorInterface;
+use Flarum\User\User;
+use Illuminate\Database\ConnectionInterface;
+use Illuminate\Support\Str;
+
+/**
+ * Chat rooms: conversations anyone allowed in may read and join.
+ *
+ * 🚨 Who may see a room is decided by its tag. A room tied to a staff-only tag
+ * is invisible — not merely locked — to everyone who cannot see that tag, and
+ * that holds for the list, the messages, the online count and every push.
+ */
+class Rooms
+{
+    /** @var array<int, array<int, true>> viewer id => visible tag ids */
+    private array $visibleTags = [];
+
+    public function __construct(
+        protected ConnectionInterface $db,
+        protected Gate $gate,
+        protected PresenceStore $presence,
+        protected TranslatorInterface $translator
+    ) {
+    }
+
+    public function isRoom(object $conversation): bool
+    {
+        return ($conversation->type ?? 'direct') === 'room';
+    }
+
+    public function canView(object $room, User $actor): bool
+    {
+        if (! $this->isRoom($room) || ! $this->gate->canUse($actor)) {
+            return false;
+        }
+
+        if ($room->archived_at && ! $actor->isAdmin()) {
+            return false;
+        }
+
+        return $room->tag_id === null || isset($this->tagsVisibleTo($actor)[(int) $room->tag_id]);
+    }
+
+    /** Why $actor may not post here, or null if they may. */
+    public function postRefusal(object $room, User $actor): ?string
+    {
+        if (! $this->canView($room, $actor)) {
+            return 'room_hidden';
+        }
+        if (! $actor->is_email_confirmed) {
+            return 'unconfirmed';
+        }
+        if ($room->archived_at) {
+            return 'room_archived';
+        }
+        if ($room->readonly && ! $actor->hasPermission(Gate::MODERATE)) {
+            return 'room_readonly';
+        }
+
+        return null;
+    }
+
+    // ── Listing ─────────────────────────────────────────────────────────────
+
+    /**
+     * Every room this person can see, in the admin's order, with whether they
+     * are in it, how many unread, and how many of its members are online now.
+     * A fixed number of queries however many rooms there are.
+     *
+     * @param  array<int, int>  $unread  conversation id => unread, from Conversations
+     * @return list<array<string, mixed>>
+     */
+    public function listFor(User $viewer, array $unread): array
+    {
+        $rooms = array_values(array_filter(
+            $this->db->table('parley_conversations')->where('type', 'room')->whereNull('archived_at')
+                ->orderBy('position')->orderBy('id')->get()->all(),
+            fn ($room) => $this->canView($room, $viewer)
+        ));
+
+        if ($rooms === []) {
+            return [];
+        }
+
+        $ids = array_map(fn ($r) => (int) $r->id, $rooms);
+
+        $joined = array_fill_keys(
+            $this->db->table('parley_participants')->whereIn('conversation_id', $ids)->where('user_id', $viewer->id)
+                ->pluck('conversation_id')->map(fn ($id) => (int) $id)->all(),
+            true
+        );
+
+        $members = [];
+        foreach ($this->db->table('parley_participants')->whereIn('conversation_id', $ids)
+            ->groupBy('conversation_id')->select('conversation_id as cid')->selectRaw('count(*) as n')->get() as $row) {
+            $members[(int) $row->cid] = (int) $row->n;
+        }
+
+        // Members of each room who are online and not hiding, in one query.
+        // The column inside count() goes through the grammar's wrap(), which
+        // applies the table prefix — a bare raw `pr.user_id` would not.
+        $online = [];
+        $cutoff = date('Y-m-d H:i:s', time() - PresenceStore::WINDOW);
+        $userCol = $this->db->getQueryGrammar()->wrap('pr.user_id');
+        foreach ($this->db->table('parley_participants as p')
+            ->join('parley_presence as pr', 'pr.user_id', '=', 'p.user_id')
+            ->whereIn('p.conversation_id', $ids)
+            ->where('pr.last_seen_at', '>=', $cutoff)
+            ->where('pr.status', '!=', 'invisible')
+            ->groupBy('p.conversation_id')
+            ->select('p.conversation_id as cid')->selectRaw("count(distinct {$userCol}) as n")->get() as $row) {
+            $online[(int) $row->cid] = (int) $row->n;
+        }
+
+        return array_map(fn ($room) => $this->card($room) + [
+            'joined' => isset($joined[(int) $room->id]),
+            'unread' => isset($joined[(int) $room->id]) ? ($unread[(int) $room->id] ?? 0) : 0,
+            'members' => $members[(int) $room->id] ?? 0,
+            'online' => $online[(int) $room->id] ?? 0,
+        ], $rooms);
+    }
+
+    /** @return array<string, mixed> */
+    public function card(object $room): array
+    {
+        return [
+            'id' => (int) $room->id,
+            'name' => $room->name,
+            'slug' => $room->slug,
+            'description' => $room->description,
+            'emoji' => $room->emoji,
+            'tagId' => $room->tag_id ? (int) $room->tag_id : null,
+            'readonly' => (bool) $room->readonly,
+            'position' => (int) $room->position,
+            'archived' => $room->archived_at !== null,
+            'lastMessageAt' => $room->last_message_at ? Carbon::parse($room->last_message_at)->toIso8601String() : null,
+        ];
+    }
+
+    // ── Membership ──────────────────────────────────────────────────────────
+
+    public function join(object $room, User $actor): void
+    {
+        if (! $this->canView($room, $actor)) {
+            return;
+        }
+
+        $exists = $this->db->table('parley_participants')
+            ->where('conversation_id', $room->id)->where('user_id', $actor->id)->exists();
+
+        if (! $exists) {
+            // Joining starts you at the latest message: a room's history is
+            // there to scroll, not a pile of unread to wade through.
+            $this->db->table('parley_participants')->insert([
+                'conversation_id' => $room->id,
+                'user_id' => $actor->id,
+                'last_read_message_id' => $room->last_message_id,
+                'joined_at' => date('Y-m-d H:i:s'),
+            ]);
+        }
+    }
+
+    public function leave(object $room, User $actor): void
+    {
+        $this->db->table('parley_participants')
+            ->where('conversation_id', $room->id)->where('user_id', $actor->id)->delete();
+    }
+
+    /**
+     * Members to push a room event to: only the ones who can still see it, so
+     * a room moved under a staff tag stops reaching members who lost access.
+     *
+     * @return int[]
+     */
+    public function audience(object $room, array $memberIds): array
+    {
+        if ($room->tag_id === null || $memberIds === []) {
+            return $memberIds;
+        }
+
+        return User::query()->whereIn('id', $memberIds)->with('groups')->get()
+            ->filter(fn (User $u) => isset($this->tagsVisibleTo($u)[(int) $room->tag_id]))
+            ->map(fn (User $u) => (int) $u->id)->values()->all();
+    }
+
+    // ── Administration ──────────────────────────────────────────────────────
+
+    /** @param  array<string, mixed>  $data */
+    public function save(?object $room, array $data): object
+    {
+        $name = trim((string) ($data['name'] ?? ($room->name ?? '')));
+        if ($name === '' || mb_strlen($name) > 80) {
+            throw new ValidationException(['name' => $this->translator->trans('ernestdefoe-parley.api.room_name')]);
+        }
+
+        $tagId = isset($data['tagId']) && $data['tagId'] !== '' && $data['tagId'] !== null ? (int) $data['tagId'] : null;
+        if (array_key_exists('tagId', $data) === false && $room) {
+            $tagId = $room->tag_id;
+        }
+
+        $values = [
+            'name' => $name,
+            'description' => mb_substr(trim((string) ($data['description'] ?? ($room->description ?? ''))), 0, 300) ?: null,
+            'emoji' => mb_substr(trim((string) ($data['emoji'] ?? ($room->emoji ?? ''))), 0, 8) ?: null,
+            'tag_id' => $tagId,
+            'readonly' => (bool) ($data['readonly'] ?? ($room->readonly ?? false)),
+            'updated_at' => date('Y-m-d H:i:s'),
+        ];
+
+        if (array_key_exists('archived', $data)) {
+            $values['archived_at'] = $data['archived'] ? ($room->archived_at ?? date('Y-m-d H:i:s')) : null;
+        }
+
+        if ($room) {
+            $this->db->table('parley_conversations')->where('id', $room->id)->update($values);
+
+            return $this->db->table('parley_conversations')->find($room->id);
+        }
+
+        $id = $this->db->table('parley_conversations')->insertGetId($values + [
+            'type' => 'room',
+            'is_group' => true,
+            'slug' => $this->uniqueSlug($name),
+            'position' => (int) $this->db->table('parley_conversations')->where('type', 'room')->max('position') + 1,
+            'created_at' => date('Y-m-d H:i:s'),
+        ]);
+
+        return $this->db->table('parley_conversations')->find($id);
+    }
+
+    /** @param  int[]  $ids  in their new order */
+    public function reorder(array $ids): void
+    {
+        foreach (array_values($ids) as $i => $id) {
+            $this->db->table('parley_conversations')->where('type', 'room')->where('id', (int) $id)->update(['position' => $i]);
+        }
+    }
+
+    public function destroy(object $room): void
+    {
+        $this->db->table('parley_conversations')->where('id', $room->id)->where('type', 'room')->delete();
+    }
+
+    /** @return list<array<string, mixed>> every room, archived too, for the admin page */
+    public function all(): array
+    {
+        return $this->db->table('parley_conversations')->where('type', 'room')
+            ->orderBy('position')->orderBy('id')->get()
+            ->map(fn ($r) => $this->card($r) + [
+                // Admin page only, a handful of rooms: one count each is fine here.
+                'members' => $this->db->table('parley_participants')->where('conversation_id', $r->id)->count(),
+            ])->all();
+    }
+
+    public function find(int $id): ?object
+    {
+        $room = $this->db->table('parley_conversations')->find($id);
+
+        return $room && $this->isRoom($room) ? $room : null;
+    }
+
+    // ── Internals ───────────────────────────────────────────────────────────
+
+    /** @return array<int, true> */
+    private function tagsVisibleTo(User $user): array
+    {
+        if (! class_exists(\Flarum\Tags\Tag::class)) {
+            return [];
+        }
+
+        return $this->visibleTags[(int) $user->id] ??= array_fill_keys(
+            \Flarum\Tags\Tag::whereVisibleTo($user)->pluck('tags.id')->map(fn ($id) => (int) $id)->all(),
+            true
+        );
+    }
+
+    private function uniqueSlug(string $name): string
+    {
+        $base = Str::slug($name) ?: 'room';
+        $slug = $base;
+        for ($i = 2; $this->db->table('parley_conversations')->where('slug', $slug)->exists(); $i++) {
+            $slug = $base.'-'.$i;
+        }
+
+        return $slug;
+    }
+}

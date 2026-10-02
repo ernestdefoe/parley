@@ -34,6 +34,11 @@ export default class ParleyState {
     this.guests = 0;
     this.loaded = false;
 
+    /** Rooms this person can see, in the admin's order, from the heartbeat. */
+    this.rooms = [];
+    /** Every person met in a message, by id — a room's authors are not known up front. */
+    this.cards = new Map();
+
     /** id → { summary, messages, hasOlder, loadingOlder, typing: {userId: until} } */
     this.convs = new Map();
     this.unread = {};
@@ -49,7 +54,7 @@ export default class ParleyState {
 
     this.filter = '';
     this.found = [];
-    this.sections = { follow: true, all: true };
+    this.sections = { rooms: true, follow: true, all: true };
     this.statusMenu = false;
     this.railHidden = false;
     this.railSheet = false;
@@ -84,6 +89,7 @@ export default class ParleyState {
     [...this.open, ...this.heads].forEach((id) => this.load(id));
 
     window.addEventListener('resize', () => this.fit());
+    window.addEventListener('pagehide', () => api.leave());
   }
 
   get status() {
@@ -130,6 +136,7 @@ export default class ParleyState {
         this.followingOffline = r.followingOffline || [];
         this.more = r.more || 0;
         this.guests = r.guests || 0;
+        this.rooms = r.rooms || [];
         this.loaded = true;
         this.applyUnread(r.unread || {});
         m.redraw();
@@ -182,7 +189,20 @@ export default class ParleyState {
 
     // Re-runs on every reconnect with the new channel object, so bindings are
     // never left on a dead socket.
+    // The online list goes live: a nameless "something changed" on the public
+    // channel, and this page asks for its own list. Resubscribed on reconnect.
+    const subscribePublic = () => {
+      try {
+        const channel = app.websocket && app.websocket.subscribe('public');
+        channel && channel.bind('parley.presence', () => this.presenceChanged());
+      } catch (e) {
+        // No public channel: the list still refreshes every 30 seconds.
+      }
+    };
     rt.onUserChannelReady((channel) => {
+      // Here, not at start: the socket exists once this fires, and it fires
+      // again after every reconnect with a fresh socket to subscribe on.
+      subscribePublic();
       channel.bind('parley.message', (d) => this.received(d.message));
       channel.bind('parley.messageChanged', (d) => this.changed(d.message));
       channel.bind('parley.read', (d) => this.readBy(d));
@@ -203,6 +223,19 @@ export default class ParleyState {
     return state === 'connected';
   }
 
+  /**
+   * Someone arrived, left or changed status. Every open page hears it at
+   * once, so each waits a random second or two before asking — a hundred
+   * pages should not all ask in the same instant.
+   */
+  presenceChanged() {
+    if (this.presenceTimer) return;
+    this.presenceTimer = setTimeout(() => {
+      this.presenceTimer = null;
+      this.beat();
+    }, 300 + Math.random() * 2000);
+  }
+
   /** For Parley Calls: bind more events on the same channel. */
   onChannel(fn) {
     this.listeners.add(fn);
@@ -214,7 +247,48 @@ export default class ParleyState {
     return this.convs.get(Number(id));
   }
 
+  remember(messages) {
+    (messages || []).forEach((m) => m && m.author && this.cards.set(m.author.id, m.author));
+  }
+
+  card(userId) {
+    return this.cards.get(Number(userId)) || this.person(userId) || null;
+  }
+
+  room(id) {
+    return this.rooms.find((r) => r.id === Number(id)) || null;
+  }
+
+  isRoom(id) {
+    const c = this.conv(id);
+    return (c && c.summary.type === 'room') || !!this.room(id);
+  }
+
+  /** Open a room: joining it, so its messages arrive live and it counts unread. */
+  openRoom(id) {
+    id = Number(id);
+    const room = this.room(id);
+    const go = () => this.show(id);
+    if (room && !room.joined) {
+      return api.joinRoom(id).then((r) => {
+        this.rooms = r.rooms || this.rooms;
+        go();
+      });
+    }
+    go();
+    return Promise.resolve();
+  }
+
+  leaveRoom(id) {
+    id = Number(id);
+    return api.leaveRoom(id).then((r) => {
+      this.rooms = r.rooms || this.rooms;
+      this.close(id);
+    });
+  }
+
   ensure(summary, messages) {
+    this.remember(messages);
     const id = summary.id;
     const existing = this.convs.get(id);
     if (existing) {
@@ -330,6 +404,7 @@ export default class ParleyState {
   // ── Messages in ───────────────────────────────────────────────────────────
 
   received(message) {
+    this.remember([message]);
     const id = message.conversationId;
     const c = this.conv(id);
 
@@ -361,8 +436,9 @@ export default class ParleyState {
       } else {
         this.unread[id] = (this.unread[id] || 0) + 1;
         // Messenger brings the conversation forward as a head. Busy keeps it
-        // quiet: the badge still counts, nothing pops.
-        if (!this.open.includes(id) && !this.heads.includes(id) && this.status !== 'busy') {
+        // quiet: the badge still counts, nothing pops. A room never pops: it
+        // counts in the list, it does not interrupt.
+        if (!this.isRoom(id) && !this.open.includes(id) && !this.heads.includes(id) && this.status !== 'busy') {
           this.heads.unshift(id);
           this.heads = this.heads.slice(0, MAX_HEADS);
           this.save();
@@ -422,12 +498,16 @@ export default class ParleyState {
     for (const key in map) {
       const id = Number(key);
       const n = map[key];
-      if (n > 0 && !this.isVisible(id) && !this.open.includes(id) && !this.heads.includes(id) && this.status !== 'busy') {
+      if (n > 0 && !this.isRoom(id) && !this.isVisible(id) && !this.open.includes(id) && !this.heads.includes(id) && this.status !== 'busy') {
         this.heads.push(id);
         if (!this.conv(id)) this.load(id);
       }
     }
     this.unread = { ...map };
+    // A room counts in the list only, once you have joined it.
+    this.rooms.forEach((r) => {
+      if (map[r.id] !== undefined) r.unread = map[r.id];
+    });
     // Anything open and in view is being read, whatever the server counted.
     this.open.forEach((id) => this.isVisible(id) && (this.unread[id] = 0));
     this.heads = this.heads.slice(0, MAX_HEADS);
@@ -458,8 +538,9 @@ export default class ParleyState {
     });
   }
 
+  /** Direct messages only: a busy room should not shout from the pill. */
   totalUnread() {
-    return Object.values(this.unread).reduce((a, n) => a + (n || 0), 0);
+    return Object.entries(this.unread).reduce((a, [id, n]) => a + (this.isRoom(id) ? 0 : n || 0), 0);
   }
 
   // ── Messages out ──────────────────────────────────────────────────────────

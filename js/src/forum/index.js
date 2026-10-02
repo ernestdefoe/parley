@@ -8,6 +8,7 @@ import Parley from './components/Parley';
 import InboxPage from './components/InboxPage';
 import MessageNotification from './components/MessageNotification';
 import ReportNotification from './components/ReportNotification';
+import RoomMentionNotification from './components/RoomMentionNotification';
 import api from './api';
 
 export { default as ParleyState } from './state';
@@ -29,6 +30,7 @@ app.initializers.add('ernestdefoe-parley', () => {
 
   app.notificationComponents.parleyMessage = MessageNotification;
   app.notificationComponents.parleyReport = ReportNotification;
+  app.notificationComponents.parleyRoomMention = RoomMentionNotification;
 
   /*
    * 🚨 Started from `mount`, not from the initializer. `app.forum` and the

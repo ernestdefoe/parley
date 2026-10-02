@@ -38,6 +38,16 @@ ernestdefoe-parley:
       peek: "{count} online"
       peek_unread: "{count} unread"
 
+    rooms:
+      title: Rooms
+      here: here
+      open: "Open {name}"
+      online_count: "{count} online"
+      members_count: "{count, plural, one {# member} other {# members}}"
+      announcements: Announcements
+      readonly_note: Only moderators post in this room.
+      empty: Nothing has been said here yet. Start it off.
+
     status:
       online: Online
       online_desc: Visible to everyone
@@ -80,6 +90,7 @@ ernestdefoe-parley:
       report_send: Report
       reported: Reported. The moderators will take a look.
       cancel: Cancel
+      leave_room: Leave room
       too_big: "That picture is larger than {max} MB."
       call_voice: Voice call
       call_video: Video call
@@ -92,6 +103,8 @@ ernestdefoe-parley:
     inbox:
       title: Messages
       messages: Messages
+      rooms: Rooms
+      direct: Direct messages
       reports: Reports
       empty: No conversations yet. Click anyone in the online list to start one.
       pick: Pick a conversation on the left.
@@ -104,6 +117,8 @@ ernestdefoe-parley:
     notifications:
       message: "{username} sent you a message"
       report: "A message from {username} was reported"
+      room_mention: "{username} mentioned you in {room}"
+      room_mention_plain: "{username} mentioned you in a room"
 
     controls:
       message: Message
@@ -125,7 +140,11 @@ ernestdefoe-parley:
     upload_failed: The picture did not upload. Try again.
     image_too_big: "That picture is larger than {max} MB."
     not_an_image: That file is not a picture Parley can show. Use a JPEG, PNG, GIF or WebP.
+    room_name: Give the room a name of up to 80 characters.
     refusal:
+      room_hidden: That room is not open to you.
+      room_archived: That room has been archived.
+      room_readonly: Only moderators post in this room.
       self: You cannot message yourself.
       no_permission: You do not have permission to send messages.
       unconfirmed: Confirm your email address before sending messages.
@@ -135,6 +154,28 @@ ernestdefoe-parley:
       following_only: "{name} only accepts messages from people they follow."
 
   admin:
+    rooms:
+      title: Rooms
+      help: Drag a room to change its place in the list. A room tied to a tag is seen by exactly the people who can see that tag.
+      add: Add a room
+      edit: Edit
+      archive: Archive
+      restore: Restore
+      archived: archived
+      delete: Delete
+      delete_confirm: Delete it and every message in it
+      cancel: Cancel
+      save: Save
+      name: Name
+      emoji: Emoji
+      description: What the room is for (optional)
+      who_sees: Who can see it
+      everyone: Everyone who can use Parley
+      same_as_tag: "Whoever can see {tag}"
+      in_tag: "Seen like {tag}"
+      members: "{count, plural, one {# member} other {# members}}"
+      readonly: Announcements — only moderators can post
+      announcements: announcements
     permissions:
       use: Use Parley chat
       hide_from_list: Hidden from the Parley online list

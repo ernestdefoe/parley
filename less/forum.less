@@ -962,3 +962,56 @@
     &:not(.has-selected) .pl-inbox-main { display: none; }
   }
 }
+
+/* ── Rooms ─────────────────────────────────────────────────────────────── */
+
+.Parley .pl-room-tile {
+  --s: 36px;
+  width: var(--s);
+  height: var(--s);
+  border-radius: 10px;
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  background: var(--pl-accent-soft);
+  color: var(--pl-accent);
+  font-weight: 700;
+  font-size: ~"calc(var(--s) * .5)";
+  line-height: 1;
+  user-select: none;
+}
+.Parley .pl-room .pl-act { display: flex; align-items: center; gap: 0; }
+.Parley .pl-room .pl-act > * { flex: none; }
+.Parley .pl-live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--pl-online);
+  display: inline-block;
+  margin-right: 5px;
+}
+.Parley .pl-author {
+  font-size: 11.5px;
+  color: var(--pl-muted);
+  margin: 8px 0 1px 38px;
+  font-weight: 500;
+}
+.Parley .pl-author + .pl-row.gap { margin-top: 0; }
+.Parley .pl-mention { font-weight: 600; }
+.Parley .pl-row.them .pl-mention { color: var(--pl-accent); }
+.Parley .pl-readonly {
+  padding: 12px;
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--pl-muted);
+  border-top: 1px solid var(--pl-line);
+}
+.Parley .pl-composer.hidden { display: none; }
+.Parley-inbox .pl-inbox-sec {
+  font-size: 11px;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--pl-muted);
+  font-weight: 600;
+  padding: 12px 8px 6px;
+}

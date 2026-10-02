@@ -3,6 +3,7 @@ import Component from 'flarum/common/Component';
 import ItemList from 'flarum/common/utils/ItemList';
 import extractText from 'flarum/common/utils/extractText';
 import Avatar from './Avatar';
+import RoomTile from './RoomTile';
 import MessageList from './MessageList';
 import Icons from '../icons';
 import api from '../api';
@@ -31,9 +32,17 @@ export default class ChatWindow extends Component {
       return <section className="pl-win pl-loading" aria-busy="true"><div className="pl-w-head"><span className="pl-skel" /></div></section>;
     }
 
+    const isRoom = conv.summary.type === 'room';
+    const room = isRoom ? { ...(conv.summary.room || {}), ...(s.room(id) || {}) } : null;
     const peer = conv.summary.participants[0] || { displayName: '?' };
     const live = { ...peer, ...s.presenceOf(peer.id) };
-    const title = conv.summary.isGroup ? conv.summary.title || conv.summary.participants.map((p) => p.displayName).join(', ') : peer.displayName;
+    const title = isRoom ? room.name : conv.summary.isGroup ? conv.summary.title || conv.summary.participants.map((p) => p.displayName).join(', ') : peer.displayName;
+    const status = isRoom
+      ? [room.online ? extractText(app.translator.trans('ernestdefoe-parley.forum.rooms.online_count', { count: room.online })) : null,
+         room.members !== undefined ? extractText(app.translator.trans('ernestdefoe-parley.forum.rooms.members_count', { count: room.members })) : null]
+          .filter(Boolean).join(' · ') || room.description || ''
+      : presenceLine(live);
+    const canPost = !isRoom || !room.readonly || s.config.canModerate;
     const replying = s.replyTo[id];
     const editing = s.editing[id];
     const reporting = s.reporting && s.reporting.conversationId === id ? s.reporting.message : null;
@@ -41,10 +50,10 @@ export default class ChatWindow extends Component {
     return (
       <section className={'pl-win' + (min ? ' min' : '') + (s.flash.has(id) ? ' flash' : '') + (this.attrs.page ? ' page' : '')} aria-label={extractText(t('label', { name: title }))}>
         <div className="pl-w-head">
-          {Avatar(live, 32, { dot: true })}
+          {isRoom ? RoomTile(room, 32) : Avatar(live, 32, { dot: true })}
           <div className="pl-who" onclick={() => !this.attrs.page && s.toggleMinimised(id)}>
             <div className="pl-nm">{title}</div>
-            <div className="pl-st">{presenceLine(live)}</div>
+            <div className="pl-st">{status}</div>
           </div>
           {this.headerItems(conv, live).toArray()}
         </div>
@@ -63,7 +72,9 @@ export default class ChatWindow extends Component {
           </div>
         ) : null}
 
-        <form className="pl-composer" onsubmit={(e) => this.submit(e, conv)}>
+        {!canPost ? <div className="pl-readonly">{app.translator.trans('ernestdefoe-parley.forum.rooms.readonly_note')}</div> : null}
+
+        <form className={'pl-composer' + (canPost ? '' : ' hidden')} onsubmit={(e) => this.submit(e, conv)}>
           <button type="button" className="pl-ib" title={extractText(t('add_photo'))} aria-label={extractText(t('add_photo'))} onclick={(e) => e.currentTarget.nextElementSibling.click()}>
             {Icons.img()}
           </button>
@@ -106,6 +117,12 @@ export default class ChatWindow extends Component {
     const s = app.parley;
     const id = conv.summary.id;
     const items = new ItemList();
+
+    if (conv.summary.type === 'room') {
+      items.add('leave', (
+        <button className="pl-ib plain" aria-label={extractText(t('leave_room'))} title={extractText(t('leave_room'))} onclick={() => s.leaveRoom(id)}>{Icons.door()}</button>
+      ), -5);
+    }
 
     if (this.attrs.page) return items;
 

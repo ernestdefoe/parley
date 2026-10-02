@@ -7,6 +7,7 @@ use Ernestdefoe\Parley\Conversations;
 use Ernestdefoe\Parley\Gate;
 use Ernestdefoe\Parley\Notification\NewMessageBlueprint;
 use Ernestdefoe\Parley\Notification\ReportBlueprint;
+use Ernestdefoe\Parley\Notification\RoomMentionBlueprint;
 use Flarum\Api\Context;
 use Flarum\Api\Resource\ForumResource;
 use Flarum\Api\Schema;
@@ -20,12 +21,22 @@ return [
         ->route('/parley/{id:\d+}', 'parley.conversation'),
 
     (new Extend\Frontend('admin'))
-        ->js(__DIR__.'/js/dist/admin.js'),
+        ->js(__DIR__.'/js/dist/admin.js')
+        ->css(__DIR__.'/less/admin.less'),
 
     new Extend\Locales(__DIR__.'/locale'),
 
     (new Extend\Routes('api'))
         ->post('/parley/heartbeat', 'ernestdefoe-parley.heartbeat', Api\HeartbeatController::class)
+        ->post('/parley/leave', 'ernestdefoe-parley.leave', Api\HeartbeatController::class)
+        ->get('/parley/rooms', 'ernestdefoe-parley.rooms', Api\RoomsController::class)
+        ->post('/parley/rooms/{id:\d+}/join', 'ernestdefoe-parley.rooms.join', Api\RoomsController::class)
+        ->post('/parley/rooms/{id:\d+}/leave', 'ernestdefoe-parley.rooms.leave', Api\RoomsController::class)
+        ->get('/parley/admin/rooms', 'ernestdefoe-parley.rooms.admin', Api\RoomsController::class)
+        ->post('/parley/admin/rooms', 'ernestdefoe-parley.rooms.admin.create', Api\RoomsController::class)
+        ->patch('/parley/admin/rooms/{id:\d+}', 'ernestdefoe-parley.rooms.admin.update', Api\RoomsController::class)
+        ->delete('/parley/admin/rooms/{id:\d+}', 'ernestdefoe-parley.rooms.admin.delete', Api\RoomsController::class)
+        ->post('/parley/admin/rooms/order', 'ernestdefoe-parley.rooms.admin.order', Api\RoomsController::class)
         ->get('/parley/conversations', 'ernestdefoe-parley.conversations', Api\ConversationsController::class)
         ->post('/parley/conversations', 'ernestdefoe-parley.conversations.open', Api\ConversationsController::class)
         ->get('/parley/conversations/{id:\d+}', 'ernestdefoe-parley.conversation', Api\ShowConversationController::class)
@@ -48,7 +59,8 @@ return [
 
     (new Extend\Notification())
         ->type(NewMessageBlueprint::class, ['alert'])
-        ->type(ReportBlueprint::class, ['alert']),
+        ->type(ReportBlueprint::class, ['alert'])
+        ->type(RoomMentionBlueprint::class, ['alert']),
 
     (new Extend\Settings())
         ->default('ernestdefoe-parley.max_image_mb', 8)

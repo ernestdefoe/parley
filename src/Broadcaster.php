@@ -29,6 +29,25 @@ class Broadcaster
     }
 
     /**
+     * A signal on realtime's public channel, carrying nothing but its name.
+     * Used to say "the online list changed": every browser then asks for its
+     * own list, so nobody learns from the signal who came or went — Appear
+     * offline, blocks and hidden groups are all applied by that request.
+     */
+    public function toEveryone(string $event): void
+    {
+        if (! $this->available()) {
+            return;
+        }
+
+        try {
+            $this->container->make(\Pusher\Pusher::class)->trigger('public', 'parley.'.$event, ['at' => time()]);
+        } catch (Throwable $e) {
+            $this->log->warning('[parley] realtime push failed: '.$e->getMessage());
+        }
+    }
+
+    /**
      * @param  int[]  $userIds
      * @param  array<string, mixed>  $payload
      */

@@ -35,7 +35,12 @@ class PresenceStore
     /**
      * @param  array{status?: string, place?: string, discussionId?: int|null, near?: int|null, tagId?: int|null}  $where
      */
-    public function beat(string $visitorKey, ?User $actor, array $where): void
+    /**
+     * @return bool whether this changed the online list: somebody arrived, or
+     *              changed status. Moving between pages does not count — the
+     *              list would otherwise be refreshed on every click on the site.
+     */
+    public function beat(string $visitorKey, ?User $actor, array $where): bool
     {
         $status = in_array($where['status'] ?? '', self::STATUSES, true) ? $where['status'] : 'online';
         $place = in_array($where['place'] ?? '', self::PLACES, true) ? $where['place'] : 'other';
@@ -56,7 +61,9 @@ class PresenceStore
             $place = 'other';
         }
 
-        $existing = $this->db->table('parley_presence')->where('visitor_key', $visitorKey)->first(['status', 'away_since']);
+        $existing = $this->db->table('parley_presence')->where('visitor_key', $visitorKey)->first(['status', 'away_since', 'last_seen_at']);
+        $wasOnline = $existing && strtotime((string) $existing->last_seen_at) >= time() - self::WINDOW;
+        $changed = $actor && ! $actor->isGuest() && (! $wasOnline || $existing->status !== $status);
 
         // Away keeps the moment it started, so the list can say "idle 14m"
         // instead of resetting the clock on every heartbeat.
@@ -88,12 +95,21 @@ class PresenceStore
                 ->where('last_seen_at', '<', date('Y-m-d H:i:s', time() - 600))
                 ->delete();
         }
+
+        return $changed;
     }
 
-    /** Leaving the site: drop the row now instead of waiting out the window. */
-    public function leave(string $visitorKey): void
+    /**
+     * Leaving the site: drop the row now instead of waiting out the window.
+     *
+     * @return bool whether a member left the list
+     */
+    public function leave(string $visitorKey): bool
     {
+        $wasMember = $this->db->table('parley_presence')->where('visitor_key', $visitorKey)->whereNotNull('user_id')->exists();
         $this->db->table('parley_presence')->where('visitor_key', $visitorKey)->delete();
+
+        return $wasMember;
     }
 
     /**

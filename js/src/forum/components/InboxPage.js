@@ -4,6 +4,7 @@ import LoadingIndicator from 'flarum/common/components/LoadingIndicator';
 import humanTime from 'flarum/common/utils/humanTime';
 import extractText from 'flarum/common/utils/extractText';
 import Avatar from './Avatar';
+import RoomTile from './RoomTile';
 import ChatWindow from './ChatWindow';
 import api from '../api';
 import { clock } from '../util';
@@ -83,13 +84,46 @@ export default class InboxPage extends Page {
               </div>
             ) : null}
           </div>
-          {this.tab === 'reports' ? this.reportsList() : this.loading ? <LoadingIndicator /> : convs.length ? convs.map((c) => this.item(c)) : <p className="pl-guests">{t('empty')}</p>}
+          {this.tab === 'reports' ? this.reportsList() : this.loading ? <LoadingIndicator /> : [
+            this.roomsList(),
+            s.rooms.length ? <div className="pl-inbox-sec">{t('direct')}</div> : null,
+            convs.length ? convs.filter((c) => c.type !== 'room').map((c) => this.item(c)) : <p className="pl-guests">{t('empty')}</p>,
+          ]}
         </div>
         <div className="pl-inbox-main">
           {this.selected ? <ChatWindow key={this.selected} id={this.selected} page={true} /> : <p className="pl-inbox-pick">{t('pick')}</p>}
         </div>
       </div>
     );
+  }
+
+  /** Rooms first, in the admin's order, with what is unread in each. */
+  roomsList() {
+    const s = app.parley;
+    if (!s.rooms.length) return null;
+
+    return [
+      <div className="pl-inbox-sec">{t('rooms')}</div>,
+      s.rooms.map((r) => (
+        <a className={'pl-inbox-item' + (r.id === this.selected ? ' active' : '') + (r.unread ? ' unread' : '')} href={app.route('parley.conversation', { id: r.id })}
+          onclick={(e) => {
+            e.preventDefault();
+            const go = () => m.route.set(app.route('parley.conversation', { id: r.id }));
+            r.joined ? go() : app.parley.openRoom(r.id).then(() => {
+              app.parley.close(r.id);
+              go();
+            });
+          }}
+        >
+          {RoomTile(r, 44)}
+          <span className="pl-info">
+            <span className="pl-nm">{r.name}</span>
+            <span className="pl-act">{r.online ? app.translator.trans('ernestdefoe-parley.forum.rooms.online_count', { count: r.online }) : r.description || app.translator.trans('ernestdefoe-parley.forum.rooms.members_count', { count: r.members })}</span>
+          </span>
+          <span className="pl-inbox-meta">{r.unread ? <span className="pl-unread">{r.unread > 99 ? '99+' : r.unread}</span> : null}</span>
+        </a>
+      )),
+    ];
   }
 
   item(c) {

@@ -100,3 +100,20 @@ export function windowsThatFit(viewportWidth, railWidth) {
   const free = viewportWidth - railWidth - 32;
   return Math.max(1, Math.min(3, Math.floor((free + 12) / 340)));
 }
+
+const MENTION_RE = /(^|[^\w@])@([A-Za-z0-9_\-.]{2,30})/g;
+
+/** Split plain text into strings and {username} parts for @mentions. */
+export function mentionParts(text) {
+  const out = [];
+  let last = 0;
+  String(text).replace(MENTION_RE, (match, lead, username, at) => {
+    const start = at + lead.length;
+    if (start > last) out.push(text.slice(last, start));
+    out.push({ username });
+    last = start + 1 + username.length;
+    return match;
+  });
+  if (last < text.length) out.push(text.slice(last));
+  return out;
+}

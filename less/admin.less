@@ -1,0 +1,52 @@
+.ParleyRooms-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ParleyRooms-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--control-bg, #e0e4ec);
+  border-radius: 10px;
+  background: var(--body-bg, #fff);
+  cursor: grab;
+
+  &.archived { opacity: .6; }
+  &.dragging { opacity: .4; }
+}
+.ParleyRooms-grip { color: var(--muted-color, #9aa1b0); font-size: 16px; }
+.ParleyRooms-tile {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  background: #e3ebfd;
+  color: #2a5fe0;
+  font-weight: 700;
+  font-size: 18px;
+  flex: none;
+}
+.ParleyRooms-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+
+  small { color: var(--muted-color, #636b7c); }
+}
+.ParleyRooms-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.ParleyRooms-editor {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  cursor: default;
+}
+.ParleyRooms-fields { display: flex; gap: 8px; }
+.ParleyRooms-emoji { width: 64px; flex: none; text-align: center; }

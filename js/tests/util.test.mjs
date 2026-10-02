@@ -60,3 +60,11 @@ test('windows that fit beside the rail', () => {
   assert.equal(windowsThatFit(1280, 300), 2);
   assert.equal(windowsThatFit(600, 0), 1);
 });
+
+import { mentionParts } from '../src/forum/util.js';
+
+test('mentions are split out, emails are not', () => {
+  assert.deepEqual(mentionParts('hey @BuckeyeBrian, look'), ['hey ', { username: 'BuckeyeBrian' }, ', look']);
+  assert.deepEqual(mentionParts('mail me@example.com'), ['mail me@example.com']);
+  assert.deepEqual(mentionParts('@Rae first'), [{ username: 'Rae' }, ' first']);
+});

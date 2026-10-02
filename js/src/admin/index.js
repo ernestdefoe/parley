@@ -1,3 +1,4 @@
+import RoomsManager from './components/RoomsManager';
 import app from 'flarum/admin/app';
 
 app.initializers.add('ernestdefoe-parley', () => {
@@ -27,6 +28,12 @@ app.initializers.add('ernestdefoe-parley', () => {
       },
       'moderate'
     )
+    .registerSetting(() => (
+      <div className="Form-group">
+        <label>{app.translator.trans('ernestdefoe-parley.admin.rooms.title')}</label>
+        <RoomsManager />
+      </div>
+    ))
     .registerSetting({
       setting: 'ernestdefoe-parley.away_minutes',
       type: 'number',

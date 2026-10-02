@@ -1,0 +1,147 @@
+import app from 'flarum/admin/app';
+import Component from 'flarum/common/Component';
+import Button from 'flarum/common/components/Button';
+import LoadingIndicator from 'flarum/common/components/LoadingIndicator';
+
+const t = (key, params) => app.translator.trans('ernestdefoe-parley.admin.rooms.' + key, params);
+const url = (path = '') => app.forum.attribute('apiUrl') + '/parley/admin/rooms' + path;
+
+/**
+ * The rooms, in the order members see them. Drag a row to move it; nothing
+ * here uses up and down arrows.
+ */
+export default class RoomsManager extends Component {
+  oninit(vnode) {
+    super.oninit(vnode);
+    this.rooms = null;
+    this.editing = null; // a room's id, 'new', or null
+    this.form = {};
+    this.confirmDelete = null;
+    this.dragging = null;
+    this.load();
+  }
+
+  load() {
+    app.request({ method: 'GET', url: url() }).then((r) => {
+      this.rooms = r.rooms;
+      m.redraw();
+    });
+  }
+
+  view() {
+    if (!this.rooms) return <LoadingIndicator />;
+    const tags = app.store.all('tags');
+
+    return (
+      <div className="ParleyRooms">
+        <p className="helpText">{t('help')}</p>
+        <ul className="ParleyRooms-list">
+          {this.rooms.map((r) => (
+            <li key={r.id}
+              className={'ParleyRooms-row' + (r.archived ? ' archived' : '') + (this.dragging === r.id ? ' dragging' : '')}
+              draggable={this.editing === null ? 'true' : 'false'}
+              ondragstart={(e) => {
+                this.dragging = r.id;
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('text/plain', String(r.id));
+              }}
+              ondragover={(e) => {
+                e.preventDefault();
+                if (this.dragging === null || this.dragging === r.id) return;
+                const from = this.rooms.findIndex((x) => x.id === this.dragging);
+                const to = this.rooms.findIndex((x) => x.id === r.id);
+                const [moved] = this.rooms.splice(from, 1);
+                this.rooms.splice(to, 0, moved);
+              }}
+              ondragend={() => {
+                this.dragging = null;
+                app.request({ method: 'POST', url: url('/order'), body: { ids: this.rooms.map((x) => x.id) } }).then((res) => {
+                  this.rooms = res.rooms;
+                  m.redraw();
+                });
+              }}
+            >
+              {this.editing === r.id ? this.editor(tags) : [
+                <span className="ParleyRooms-grip" aria-hidden="true">⠿</span>,
+                <span className="ParleyRooms-tile">{r.emoji || '#'}</span>,
+                <span className="ParleyRooms-info">
+                  <b>{r.name}</b>
+                  <small>
+                    {r.tagId ? t('in_tag', { tag: (tags.find((x) => Number(x.id()) === r.tagId) || { name: () => '?' }).name() }) : t('everyone')}
+                    {' · '}{t('members', { count: r.members || 0 })}
+                    {r.readonly ? [' · ', t('announcements')] : null}
+                    {r.archived ? [' · ', t('archived')] : null}
+                  </small>
+                </span>,
+                <span className="ParleyRooms-actions">
+                  {this.confirmDelete === r.id ? [
+                    <Button className="Button Button--danger" onclick={() => this.remove(r)}>{t('delete_confirm')}</Button>,
+                    <Button className="Button" onclick={() => (this.confirmDelete = null)}>{t('cancel')}</Button>,
+                  ] : [
+                    <Button className="Button" onclick={() => this.edit(r)}>{t('edit')}</Button>,
+                    <Button className="Button" onclick={() => this.save(r, { archived: !r.archived })}>{r.archived ? t('restore') : t('archive')}</Button>,
+                    <Button className="Button Button--danger" onclick={() => (this.confirmDelete = r.id)}>{t('delete')}</Button>,
+                  ]}
+                </span>,
+              ]}
+            </li>
+          ))}
+          {this.editing === 'new' ? <li key="new" className="ParleyRooms-row">{this.editor(tags)}</li> : null}
+        </ul>
+        {this.editing === null ? <Button className="Button Button--primary" icon="fas fa-plus" onclick={() => this.edit(null)}>{t('add')}</Button> : null}
+      </div>
+    );
+  }
+
+  editor(tags) {
+    const f = this.form;
+    return (
+      <form className="ParleyRooms-editor" onsubmit={(e) => {
+        e.preventDefault();
+        this.save(this.editing === 'new' ? null : { id: this.editing }, f);
+      }}>
+        <div className="ParleyRooms-fields">
+          <input className="FormControl ParleyRooms-emoji" id="ParleyRooms-emoji" placeholder="#" maxlength="8" value={f.emoji} oninput={(e) => (f.emoji = e.target.value)} aria-label={t('emoji')} />
+          <input className="FormControl" id="ParleyRooms-name" placeholder={t('name')} required maxlength="80" value={f.name} oninput={(e) => (f.name = e.target.value)} aria-label={t('name')} />
+        </div>
+        <input className="FormControl" id="ParleyRooms-description" placeholder={t('description')} maxlength="300" value={f.description} oninput={(e) => (f.description = e.target.value)} aria-label={t('description')} />
+        <label htmlFor="ParleyRooms-tag">{t('who_sees')}</label>
+        <select className="FormControl" id="ParleyRooms-tag" value={f.tagId || ''} onchange={(e) => (f.tagId = e.target.value || null)}>
+          <option value="">{t('everyone')}</option>
+          {tags.map((tag) => <option value={tag.id()}>{t('same_as_tag', { tag: tag.name() })}</option>)}
+        </select>
+        <label className="checkbox">
+          <input type="checkbox" id="ParleyRooms-readonly" checked={!!f.readonly} onchange={(e) => (f.readonly = e.target.checked)} /> {t('readonly')}
+        </label>
+        <div className="ParleyRooms-actions">
+          <Button className="Button Button--primary" type="submit">{t('save')}</Button>
+          <Button className="Button" onclick={() => (this.editing = null)}>{t('cancel')}</Button>
+        </div>
+      </form>
+    );
+  }
+
+  edit(room) {
+    this.confirmDelete = null;
+    this.editing = room ? room.id : 'new';
+    this.form = room ? { name: room.name, description: room.description || '', emoji: room.emoji || '', tagId: room.tagId, readonly: room.readonly } : { name: '', description: '', emoji: '', tagId: null, readonly: false };
+  }
+
+  save(room, data) {
+    const req = room
+      ? app.request({ method: 'PATCH', url: url('/' + room.id), body: data })
+      : app.request({ method: 'POST', url: url(), body: data });
+    req.then(() => {
+      this.editing = null;
+      this.load();
+    });
+  }
+
+  remove(room) {
+    app.request({ method: 'DELETE', url: url('/' + room.id) }).then((r) => {
+      this.rooms = r.rooms;
+      this.confirmDelete = null;
+      m.redraw();
+    });
+  }
+}

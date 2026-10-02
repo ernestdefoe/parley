@@ -3,6 +3,7 @@ import Component from 'flarum/common/Component';
 import extractText from 'flarum/common/utils/extractText';
 import Avatar from './Avatar';
 import PersonRow from './PersonRow';
+import RoomRow from './RoomRow';
 import StatusMenu, { statusColor } from './StatusMenu';
 import Icons from '../icons';
 
@@ -68,6 +69,7 @@ export default class Rail extends Component {
         </label>
 
         <div className="pl-rail-scroll">
+          {this.rooms(f)}
           {following.length || !f ? this.section('follow', t('rail.following'), `${followingActive}/${following.length}`, following, t('rail.following_empty')) : null}
           {this.section('all', t('rail.online_now'), String(rest.length), rest, f ? t('rail.nobody_matches') : t('rail.nobody_online'))}
           {s.sections.all && !f && (s.more || s.guests) ? (
@@ -86,6 +88,22 @@ export default class Rail extends Component {
         </div>
       </aside>
     );
+  }
+
+  /** Rooms first: they are where the forum talks together. */
+  rooms(f) {
+    const s = app.parley;
+    const rooms = s.rooms.filter((r) => !f || r.name.toLowerCase().includes(f) || (r.description || '').toLowerCase().includes(f));
+    if (!rooms.length) return null;
+    const open = s.sections.rooms !== false;
+    const online = rooms.reduce((a, r) => a + (r.online || 0), 0);
+
+    return [
+      <button className="pl-sec-h" aria-expanded={String(open)} onclick={() => (s.sections.rooms = !open)}>
+        {Icons.chev()} {t('rooms.title')} <span className="pl-c">{online ? online + ' ' + extractText(t('rooms.here')) : rooms.length}</span>
+      </button>,
+      open ? rooms.map((r) => <RoomRow key={'room-' + r.id} room={r} />) : null,
+    ];
   }
 
   section(key, title, count, people, empty) {
