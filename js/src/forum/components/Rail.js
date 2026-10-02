@@ -84,7 +84,7 @@ export default class Rail extends Component {
 
         <div className="pl-rail-foot">
           <span>{status === 'invisible' ? t('rail.you_appear_offline') : t('rail.visible_as', { status: extractText(t('status.' + status)) })}</span>
-          <span>{t('rail.counts', { members: s.online.length + (status === 'invisible' ? 0 : 1), guests: s.guests })}</span>
+          <span>{t('rail.counts', { members: s.onlineCount(), guests: s.guests })}</span>
         </div>
       </aside>
     );

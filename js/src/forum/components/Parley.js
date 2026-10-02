@@ -108,7 +108,7 @@ export default class Parley extends Component {
         {!showRail ? (
           <button className="pl-peek" onclick={() => s.toggleRail()} aria-label={extractText(t('rail.show'))}>
             <span className="pl-peek-dot" />
-            <span>{t('rail.peek', { count: s.online.length })}{total ? [' · ', t('rail.peek_unread', { count: total })] : null}</span>
+            <span>{t('rail.peek', { count: s.onlineCount() })}{total ? [' · ', t('rail.peek_unread', { count: total })] : null}</span>
           </button>
         ) : null}
       </div>

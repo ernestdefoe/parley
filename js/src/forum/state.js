@@ -565,6 +565,16 @@ export default class ParleyState {
     });
   }
 
+  /**
+   * Everyone online, the way a person counts the room: you included (unless
+   * you appear offline), and the ones past the list's limit. The server leaves
+   * you out of your own list, so the list's length alone reads "0 online"
+   * while you are sitting there.
+   */
+  onlineCount() {
+    return this.online.length + (this.more || 0) + (this.status === 'invisible' ? 0 : 1);
+  }
+
   /** Direct messages only: a busy room should not shout from the pill. */
   totalUnread() {
     return Object.entries(this.unread).reduce((a, [id, n]) => a + (this.isRoom(id) ? 0 : n || 0), 0);
