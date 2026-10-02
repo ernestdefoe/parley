@@ -2,7 +2,14 @@
     "name": "ernestdefoe/parley",
     "description": "Parley — chat for Flarum 2. See who is online and what they are reading, and message them in windows that stay open while you browse.",
     "type": "flarum-extension",
-    "keywords": ["flarum", "chat", "messages", "online", "presence", "messenger"],
+    "keywords": [
+        "flarum",
+        "chat",
+        "messages",
+        "online",
+        "presence",
+        "messenger"
+    ],
     "license": "MIT",
     "authors": [
         {
@@ -32,6 +39,9 @@
                 "backgroundColor": "#2a5fe0",
                 "color": "#fff"
             }
+        },
+        "branch-alias": {
+            "dev-main": "1.x-dev"
         }
     }
 }
