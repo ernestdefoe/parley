@@ -36,11 +36,12 @@ class PresenceStore
      * @param  array{status?: string, place?: string, discussionId?: int|null, near?: int|null, tagId?: int|null}  $where
      */
     /**
-     * @return bool whether this changed the online list: somebody arrived, or
-     *              changed status. Moving between pages does not count — the
-     *              list would otherwise be refreshed on every click on the site.
+     * @return string what changed for everyone else's list: 'list' when
+     *                somebody arrived or changed status, 'moved' when a member
+     *                went somewhere new (the activity line), '' for nothing.
+     *                The caller decides how often each is worth announcing.
      */
-    public function beat(string $visitorKey, ?User $actor, array $where): bool
+    public function beat(string $visitorKey, ?User $actor, array $where): string
     {
         $status = in_array($where['status'] ?? '', self::STATUSES, true) ? $where['status'] : 'online';
         $place = in_array($where['place'] ?? '', self::PLACES, true) ? $where['place'] : 'other';
@@ -61,9 +62,9 @@ class PresenceStore
             $place = 'other';
         }
 
-        $existing = $this->db->table('parley_presence')->where('visitor_key', $visitorKey)->first(['status', 'away_since', 'last_seen_at']);
+        $existing = $this->db->table('parley_presence')->where('visitor_key', $visitorKey)->first(['status', 'away_since', 'last_seen_at', 'place', 'discussion_id', 'tag_id']);
         $wasOnline = $existing && strtotime((string) $existing->last_seen_at) >= time() - self::WINDOW;
-        $changed = $actor && ! $actor->isGuest() && (! $wasOnline || $existing->status !== $status);
+        $member = $actor && ! $actor->isGuest();
 
         // Away keeps the moment it started, so the list can say "idle 14m"
         // instead of resetting the clock on every heartbeat.
@@ -96,7 +97,17 @@ class PresenceStore
                 ->delete();
         }
 
-        return $changed;
+        if (! $member) {
+            return '';
+        }
+        if (! $wasOnline || $existing->status !== $status) {
+            return 'list';
+        }
+        if ($existing->place !== $place || (int) $existing->discussion_id !== (int) $discussionId || (int) $existing->tag_id !== (int) $this->positiveOrNull($where['tagId'] ?? null)) {
+            return 'moved';
+        }
+
+        return '';
     }
 
     /**

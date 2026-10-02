@@ -28,6 +28,13 @@ class HeartbeatController extends Controller
     /** At most one "the list changed" signal this often, however busy the site. */
     private const SIGNAL_EVERY = 3;
 
+    /**
+     * Someone moving to another page is announced far less often: every page
+     * on the site refreshes its list when it hears a signal, and people click
+     * around constantly. Activity lines are then at most ten seconds behind.
+     */
+    private const MOVE_SIGNAL_EVERY = 10;
+
     public function __construct(
         protected PresenceStore $presence,
         protected OnlineList $list,
@@ -62,7 +69,10 @@ class HeartbeatController extends Controller
         }
 
         $status = (string) ($body['status'] ?? 'online');
-        if ($this->presence->beat($key, $actor, $body)) {
+        $change = $this->presence->beat($key, $actor, $body);
+        if ($change === 'list') {
+            $this->signal();
+        } elseif ($change === 'moved' && $this->cache->add('parley.presence.move', 1, self::MOVE_SIGNAL_EVERY)) {
             $this->signal();
         }
 

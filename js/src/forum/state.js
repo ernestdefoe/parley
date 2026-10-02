@@ -94,6 +94,23 @@ export default class ParleyState {
 
     window.addEventListener('resize', () => this.fit());
     window.addEventListener('pagehide', () => api.leave());
+
+    /*
+     * 🚨 Moving is noticed by watching, not by Flarum's page hooks. Patching
+     * Page.oncreate looked right and never fired when a member clicked into a
+     * discussion in Flarum 2, so "Reading · <thread>" only reached others on
+     * the next 30-second heartbeat. Once a second is cheap: where() reads the
+     * URL and the composer, no request unless the answer changed. Scrolling
+     * within a discussion changes nothing here, so it stays quiet.
+     */
+    this.whereKey = this.placeKey(this.where());
+    setInterval(() => {
+      const key = this.placeKey(this.where());
+      if (key !== this.whereKey) {
+        this.whereKey = key;
+        this.moved();
+      }
+    }, 1000);
   }
 
   get status() {
@@ -122,7 +139,9 @@ export default class ParleyState {
     }
 
     // Writing a reply is its own activity: "Writing a reply · <thread>".
-    const composing = app.composer && app.composer.isVisible && app.composer.isVisible() && app.composer.body?.attrs?.discussion;
+    const c = app.composer;
+    const open = c && (typeof c.isVisible === 'function' ? c.isVisible() : c.position && c.position !== 'hidden');
+    const composing = open && c.body?.attrs?.discussion;
     if (composing) {
       where.place = 'reply';
       where.discussionId = Number(app.composer.body.attrs.discussion.id());
@@ -149,10 +168,15 @@ export default class ParleyState {
       });
   }
 
-  /** A route change is a new place; tell the list now rather than in 30s. */
+  /** A new place; tell the list now rather than in 30s. */
   moved() {
     clearTimeout(this.movedTimer);
-    this.movedTimer = setTimeout(() => this.beat(), 1500);
+    // A moment's wait, so clicking through three pages sends one update.
+    this.movedTimer = setTimeout(() => this.beat(), 800);
+  }
+
+  placeKey(w) {
+    return [w.place, w.discussionId || '', w.tagId || ''].join(':');
   }
 
   // ── Idle → Away ───────────────────────────────────────────────────────────
