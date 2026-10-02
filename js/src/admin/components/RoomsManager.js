@@ -36,7 +36,13 @@ export default class RoomsManager extends Component {
       <div className="ParleyRooms">
         <p className="helpText">{t('help')}</p>
         <ul className="ParleyRooms-list">
-          {this.rooms.map((r) => (
+          {/*
+            🚨 One flat, fully keyed list. The new-room row used to sit beside
+            this.rooms.map(...) — an unkeyed block next to a keyed row — and
+            Mithril threw on the redraw after "Add a room", so the click
+            appeared to do nothing.
+          */}
+          {[...this.rooms.map((r) => (
             <li key={r.id}
               className={'ParleyRooms-row' + (r.archived ? ' archived' : '') + (this.dragging === r.id ? ' dragging' : '')}
               draggable={this.editing === null ? 'true' : 'false'}
@@ -85,8 +91,9 @@ export default class RoomsManager extends Component {
                 </span>,
               ]}
             </li>
-          ))}
-          {this.editing === 'new' ? <li key="new" className="ParleyRooms-row">{this.editor(tags)}</li> : null}
+          )),
+          this.editing === 'new' ? <li key="new" className="ParleyRooms-row">{this.editor(tags)}</li> : null,
+          ].filter(Boolean)}
         </ul>
         {this.editing === null ? <Button className="Button Button--primary" icon="fas fa-plus" onclick={() => this.edit(null)}>{t('add')}</Button> : null}
       </div>
