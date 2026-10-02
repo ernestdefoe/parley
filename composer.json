@@ -1,0 +1,37 @@
+{
+    "name": "ernestdefoe/parley",
+    "description": "Parley — chat for Flarum 2. See who is online and what they are reading, and message them in windows that stay open while you browse.",
+    "type": "flarum-extension",
+    "keywords": ["flarum", "chat", "messages", "online", "presence", "messenger"],
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Ernestdefoe",
+            "email": "ernestdefoe@gmail.com"
+        }
+    ],
+    "require": {
+        "php": "^8.3",
+        "flarum/core": "^2.0"
+    },
+    "suggest": {
+        "flarum/realtime": "Delivers messages, typing and read receipts instantly. Without it Parley polls every 5 seconds.",
+        "ernestdefoe/parley-calls": "Voice and video calls, screen share and picture-in-picture."
+    },
+    "autoload": {
+        "psr-4": {
+            "Ernestdefoe\\Parley\\": "src/"
+        }
+    },
+    "extra": {
+        "flarum-extension": {
+            "title": "Parley",
+            "category": "feature",
+            "icon": {
+                "name": "fas fa-comments",
+                "backgroundColor": "#2a5fe0",
+                "color": "#fff"
+            }
+        }
+    }
+}
