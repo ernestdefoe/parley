@@ -2,6 +2,9 @@ import app from 'flarum/admin/app';
 import Component from 'flarum/common/Component';
 import Button from 'flarum/common/components/Button';
 import LoadingIndicator from 'flarum/common/components/LoadingIndicator';
+import Icon from 'flarum/common/components/Icon';
+
+import { readableOn } from '../../forum/util';
 
 const t = (key, params) => app.translator.trans('ernestdefoe-parley.admin.rooms.' + key, params);
 const url = (path = '') => app.forum.attribute('apiUrl') + '/parley/admin/rooms' + path;
@@ -69,7 +72,7 @@ export default class RoomsManager extends Component {
             >
               {this.editing === r.id ? this.editor(tags) : [
                 <span className="ParleyRooms-grip" aria-hidden="true">⠿</span>,
-                <span className="ParleyRooms-tile">{r.emoji || '#'}</span>,
+                this.tile(r),
                 <span className="ParleyRooms-info">
                   <b>{r.name}</b>
                   <small>
@@ -100,6 +103,16 @@ export default class RoomsManager extends Component {
     );
   }
 
+  /** The same face members see: emoji, else the tag's logo on its colour, else #. */
+  tile(r) {
+    if (r.emoji || !r.tagIcon) return <span className="ParleyRooms-tile">{r.emoji || '#'}</span>;
+    return (
+      <span className="ParleyRooms-tile logo" style={r.tagColor ? { background: r.tagColor, color: readableOn(r.tagColor) } : {}}>
+        <Icon name={r.tagIcon} />
+      </span>
+    );
+  }
+
   editor(tags) {
     const f = this.form;
     return (
@@ -108,7 +121,7 @@ export default class RoomsManager extends Component {
         this.save(this.editing === 'new' ? null : { id: this.editing }, f);
       }}>
         <div className="ParleyRooms-fields">
-          <input className="FormControl ParleyRooms-emoji" id="ParleyRooms-emoji" placeholder="#" maxlength="8" value={f.emoji} oninput={(e) => (f.emoji = e.target.value)} aria-label={t('emoji')} />
+          <input className="FormControl ParleyRooms-emoji" id="ParleyRooms-emoji" placeholder={app.translator.trans('ernestdefoe-parley.admin.rooms.emoji_placeholder')} title={app.translator.trans('ernestdefoe-parley.admin.rooms.emoji_help')} maxlength="8" value={f.emoji} oninput={(e) => (f.emoji = e.target.value)} aria-label={t('emoji')} />
           <input className="FormControl" id="ParleyRooms-name" placeholder={t('name')} required maxlength="80" value={f.name} oninput={(e) => (f.name = e.target.value)} aria-label={t('name')} />
         </div>
         <input className="FormControl" id="ParleyRooms-description" placeholder={t('description')} maxlength="300" value={f.description} oninput={(e) => (f.description = e.target.value)} aria-label={t('description')} />

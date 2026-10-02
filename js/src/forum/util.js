@@ -117,3 +117,23 @@ export function mentionParts(text) {
   if (last < text.length) out.push(text.slice(last));
   return out;
 }
+
+/**
+ * White or near-black, whichever reads better on this background, by WCAG
+ * relative luminance. A tag colour can be anything from navy to gold.
+ */
+export function readableOn(hex) {
+  const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(String(hex || '').trim());
+  if (!m) return '#ffffff';
+  let h = m[1];
+  if (h.length === 3) h = h.split('').map((c) => c + c).join('');
+  const lin = (i) => {
+    const c = parseInt(h.slice(i, i + 2), 16) / 255;
+    return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  };
+  const L = 0.2126 * lin(0) + 0.7152 * lin(2) + 0.0722 * lin(4);
+  const contrast = (a, b) => (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+  // #171b24 is Parley's own ink colour.
+  const ink = 0.0107;
+  return contrast(L, 1) >= contrast(L, ink) ? '#ffffff' : '#171b24';
+}

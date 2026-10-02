@@ -68,3 +68,13 @@ test('mentions are split out, emails are not', () => {
   assert.deepEqual(mentionParts('mail me@example.com'), ['mail me@example.com']);
   assert.deepEqual(mentionParts('@Rae first'), [{ username: 'Rae' }, ' first']);
 });
+
+import { readableOn } from '../src/forum/util.js';
+
+test('a logo is white on dark tag colours and dark on light ones', () => {
+  assert.equal(readableOn('#22356B'), '#ffffff'); // SEC navy
+  assert.equal(readableOn('#C41230'), '#ffffff'); // Big 12 red
+  assert.equal(readableOn('#F6A800'), '#171b24'); // Sun Belt gold
+  assert.equal(readableOn('#019E4F'), '#171b24'); // MAC green is light enough
+  assert.equal(readableOn('nonsense'), '#ffffff');
+});

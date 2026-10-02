@@ -156,7 +156,7 @@ ernestdefoe-parley:
   admin:
     rooms:
       title: Rooms
-      help: Drag a room to change its place in the list. A room tied to a tag is seen by exactly the people who can see that tag.
+      help: Drag a room to change its place in the list. A room tied to a tag is seen by exactly the people who can see that tag, and shows that tag's icon unless you give it an emoji.
       add: Add a room
       edit: Edit
       archive: Archive
@@ -168,6 +168,8 @@ ernestdefoe-parley:
       save: Save
       name: Name
       emoji: Emoji
+      emoji_placeholder: Logo
+      emoji_help: An emoji for the room. Leave it empty to show the icon of the tag the room is tied to.
       description: What the room is for (optional)
       who_sees: Who can see it
       everyone: Everyone who can use Parley

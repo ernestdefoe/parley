@@ -21,6 +21,9 @@ class Rooms
     /** @var array<int, array<int, true>> viewer id => visible tag ids */
     private array $visibleTags = [];
 
+    /** @var array<int, array{icon: ?string, color: ?string}>|null tag id => its icon and colour */
+    private ?array $tagLooks = null;
+
     public function __construct(
         protected ConnectionInterface $db,
         protected Gate $gate,
@@ -136,6 +139,10 @@ class Rooms
             'description' => $room->description,
             'emoji' => $room->emoji,
             'tagId' => $room->tag_id ? (int) $room->tag_id : null,
+            // The tag's own icon and colour, so a room with no emoji wears its
+            // tag's badge — a conference room shows the conference logo.
+            'tagIcon' => $room->tag_id ? ($this->tagLook((int) $room->tag_id)['icon'] ?? null) : null,
+            'tagColor' => $room->tag_id ? ($this->tagLook((int) $room->tag_id)['color'] ?? null) : null,
             'readonly' => (bool) $room->readonly,
             'position' => (int) $room->position,
             'archived' => $room->archived_at !== null,
@@ -278,6 +285,26 @@ class Rooms
             \Flarum\Tags\Tag::whereVisibleTo($user)->pluck('tags.id')->map(fn ($id) => (int) $id)->all(),
             true
         );
+    }
+
+    /**
+     * Every tag's icon and colour, read once per request: the tags table is
+     * small, and one query beats one per room.
+     *
+     * @return array{icon: ?string, color: ?string}
+     */
+    private function tagLook(int $tagId): array
+    {
+        if ($this->tagLooks === null) {
+            $this->tagLooks = [];
+            if ($this->db->getSchemaBuilder()->hasTable('tags')) {
+                foreach ($this->db->table('tags')->get(['id', 'icon', 'color']) as $tag) {
+                    $this->tagLooks[(int) $tag->id] = ['icon' => $tag->icon ?: null, 'color' => $tag->color ?: null];
+                }
+            }
+        }
+
+        return $this->tagLooks[$tagId] ?? ['icon' => null, 'color' => null];
     }
 
     private function uniqueSlug(string $name): string

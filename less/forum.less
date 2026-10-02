@@ -963,6 +963,15 @@
   }
 }
 
+/* A conference logo on its tag colour: a kit icon can be a font glyph or an
+   inline svg, so both are sized to the tile. */
+.Parley .pl-room-tile.logo {
+  font-weight: 400;
+
+  .icon { font-size: ~"calc(var(--s) * .56)"; line-height: 1; }
+  svg { width: ~"calc(var(--s) * .62)"; height: ~"calc(var(--s) * .62)"; }
+}
+
 /* ── Rooms ─────────────────────────────────────────────────────────────── */
 
 .Parley .pl-room-tile {
