@@ -219,7 +219,23 @@
   .pl-who { min-width: 0; flex: 1; }
   .pl-nm { font-weight: 600; }
 }
+.Parley .pl-me-line {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.Parley .pl-me-act {
+  font-size: 12px;
+  color: var(--pl-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+
+  b { color: var(--pl-accent); font-weight: 500; }
+}
 .Parley .pl-status-btn {
+  flex: none;
   display: flex;
   align-items: center;
   gap: 6px;

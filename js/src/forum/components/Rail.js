@@ -5,6 +5,7 @@ import Avatar from './Avatar';
 import PersonRow from './PersonRow';
 import RoomRow from './RoomRow';
 import StatusMenu, { statusColor } from './StatusMenu';
+import { activityLine, ownActivity } from './activity';
 import Icons from '../icons';
 
 const t = (key, params) => app.translator.trans('ernestdefoe-parley.forum.' + key, params);
@@ -37,6 +38,7 @@ export default class Rail extends Component {
           {Avatar(meCard, 40, { dot: true, status: status === 'invisible' ? 'offline' : status })}
           <div className="pl-who">
             <div className="pl-nm">{meCard.displayName}</div>
+            <div className="pl-me-line">
             <button
               className="pl-status-btn"
               aria-haspopup="menu"
@@ -48,6 +50,8 @@ export default class Rail extends Component {
               <i style={{ background: statusColor(status) }} />
               {t('status.' + status)} {Icons.chev()}
             </button>
+            {this.ownLine()}
+            </div>
           </div>
           <button className="pl-ib" title={extractText(t('rail.hide'))} aria-label={extractText(t('rail.hide'))} onclick={() => s.toggleRail()}>
             {Icons.x()}
@@ -88,6 +92,16 @@ export default class Rail extends Component {
         </div>
       </aside>
     );
+  }
+
+  /**
+   * What you are doing, beside your status: the same line others see for you,
+   * worked out here so it changes the moment you move.
+   */
+  ownLine() {
+    const a = ownActivity();
+    if (!a) return null;
+    return <span className="pl-me-act">{' · '}{activityLine({ status: 'online', activity: a })}</span>;
   }
 
   /** Rooms first: they are where the forum talks together. */

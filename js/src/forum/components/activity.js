@@ -58,3 +58,23 @@ export function activityHref(p) {
   if (a.tagSlug) return app.route('tag', { tags: a.tagSlug });
   return null;
 }
+
+/**
+ * What you are doing yourself, worked out in this browser from where you are,
+ * so your own row changes the moment you move. Same words others see for you,
+ * with the place's name taken from what this page has already loaded.
+ */
+export function ownActivity() {
+  const w = app.parley.where();
+  if (w.place === 'discussion' || w.place === 'reply') {
+    const d = w.discussionId && app.store.getById('discussions', String(w.discussionId));
+    if (!d) return null;
+    return { verb: w.place === 'reply' ? 'replying' : 'reading', label: d.title() };
+  }
+  if (w.place === 'tag' && w.tagId) {
+    const tag = app.store.getById('tags', String(w.tagId));
+    return tag ? { verb: 'browsing', label: tag.name() } : null;
+  }
+  if (w.place === 'index') return { verb: 'browsing_all', label: null };
+  return null;
+}
