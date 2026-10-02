@@ -18,6 +18,15 @@ use Illuminate\Support\Str;
  */
 class Rooms
 {
+    /**
+     * Callables that add to room cards, given the whole list at once so they
+     * can answer in one query: fn (array $cards, User|null $viewer): array.
+     * Parley Calls adds who is in each room's voice chat here.
+     *
+     * @var list<callable>
+     */
+    public static array $cardExtenders = [];
+
     /** @var array<int, array<int, true>> viewer id => visible tag ids */
     private array $visibleTags = [];
 
@@ -148,14 +157,27 @@ class Rooms
             $online[(int) $row->cid] = (int) $row->n;
         }
 
-        return array_map(fn ($room) => $this->card($room) + [
+        return $this->extend(array_map(fn ($room) => $this->card($room) + [
             'children' => $childCount[(int) $room->id] ?? 0,
             'childUnread' => $childUnread[(int) $room->id] ?? 0,
             'joined' => isset($joined[(int) $room->id]),
             'unread' => isset($joined[(int) $room->id]) ? ($unread[(int) $room->id] ?? 0) : 0,
             'members' => $members[(int) $room->id] ?? 0,
             'online' => $online[(int) $room->id] ?? 0,
-        ], $rooms);
+        ], $rooms), $viewer);
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $cards
+     * @return list<array<string, mixed>>
+     */
+    public function extend(array $cards, ?User $viewer = null): array
+    {
+        foreach (self::$cardExtenders as $extender) {
+            $cards = $extender($cards, $viewer);
+        }
+
+        return $cards;
     }
 
     /** @return array<string, mixed> */
@@ -301,12 +323,19 @@ class Rooms
     /** @return list<array<string, mixed>> every room, archived too, for the admin page */
     public function all(): array
     {
-        return $this->db->table('parley_conversations')->where('type', 'room')
-            ->orderBy('position')->orderBy('id')->get()
-            ->map(fn ($r) => $this->card($r) + [
-                // Admin page only, a handful of rooms: one count each is fine here.
-                'members' => $this->db->table('parley_participants')->where('conversation_id', $r->id)->count(),
-            ])->all();
+        $rooms = $this->db->table('parley_conversations')->where('type', 'room')
+            ->orderBy('position')->orderBy('id')->get();
+
+        // One grouped count: FBSFB alone has 147 rooms.
+        $members = [];
+        foreach ($this->db->table('parley_participants')->whereIn('conversation_id', $rooms->pluck('id'))
+            ->groupBy('conversation_id')->select('conversation_id as cid')->selectRaw('count(*) as n')->get() as $row) {
+            $members[(int) $row->cid] = (int) $row->n;
+        }
+
+        return $this->extend($rooms->map(fn ($r) => $this->card($r) + [
+            'members' => $members[(int) $r->id] ?? 0,
+        ])->values()->all());
     }
 
     public function find(int $id): ?object

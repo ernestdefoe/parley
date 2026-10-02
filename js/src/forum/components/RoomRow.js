@@ -29,7 +29,12 @@ export default class RoomRow extends Component {
       >
         {RoomTile(r, 36)}
         <div className="pl-info">
-          <div className="pl-nm">{r.name}{r.readonly ? <span className="pl-badge">{t('announcements')}</span> : null}</div>
+          <div className="pl-nm">
+            {r.name}
+            {r.readonly ? <span className="pl-badge">{t('announcements')}</span> : null}
+            {/* Set by Parley Calls: how many are in this room's voice chat. */}
+            {r.voiceCount ? <span className="pl-voice-tag" title={extractText(t('in_voice', { count: r.voiceCount }))}>{Icons.speaker()}{r.voiceCount}</span> : null}
+          </div>
           <div className="pl-act">
             {r.online ? [<i className="pl-live-dot" />, t('online_count', { count: r.online }), r.description ? ' · ' : ''] : null}
             {r.description || (r.online ? null : t('members_count', { count: r.members }))}

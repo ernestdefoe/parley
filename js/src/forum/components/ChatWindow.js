@@ -58,6 +58,8 @@ export default class ChatWindow extends Component {
           {this.headerItems(conv, live).toArray()}
         </div>
 
+        {this.bodyTopItems(conv).toArray()}
+
         <MessageList conv={conv} />
 
         {reporting ? this.reportBar(reporting) : null}
@@ -134,6 +136,14 @@ export default class ChatWindow extends Component {
     ), -20);
 
     return items;
+  }
+
+  /**
+   * Anything drawn between the header and the messages. Empty here; Parley
+   * Calls puts a room's voice bar in it.
+   */
+  bodyTopItems(conv) {
+    return new ItemList();
   }
 
   submit(e, conv) {

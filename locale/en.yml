@@ -46,6 +46,7 @@ ernestdefoe-parley:
       members_count: "{count, plural, one {# member} other {# members}}"
       announcements: Announcements
       readonly_note: Only moderators post in this room.
+      in_voice: "{count} in voice chat"
       show_teams: "Show {name}'s {count, plural, one {# room} other {# rooms}}"
       hide_teams: "Hide {name}'s rooms"
       empty: Nothing has been said here yet. Start it off.
