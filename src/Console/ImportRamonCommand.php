@@ -59,7 +59,10 @@ class ImportRamonCommand extends AbstractCommand
 
             $members = $this->db->table('chat_channel_user')->where('channel_id', $channel->id)->get();
             $rows = $this->db->table('chat_messages')->where('channel_id', $channel->id)
-                ->whereNull('thread_id')->whereNull('deleted_at')->orderBy('id')->get();
+                ->whereNull('thread_id')->whereNull('deleted_at')
+                ->where('type', 'text')->whereNotNull('user_id')
+                ->orderBy('id')->get()
+                ->filter(fn ($row) => trim($this->plain((string) $row->content)) !== '')->values();
 
             if ($members->count() < 2 || $rows->isEmpty()) {
                 continue;
@@ -128,8 +131,14 @@ class ImportRamonCommand extends AbstractCommand
                 continue;
             }
 
+            // Only what people said: ramon/chat's system notices ("joined the
+            // channel") have no author and no text, and would arrive as blank
+            // bubbles.
             $rows = $this->db->table('chat_messages')->where('channel_id', $channel->id)
-                ->whereNull('thread_id')->whereNull('deleted_at')->orderBy('id')->get();
+                ->whereNull('thread_id')->whereNull('deleted_at')
+                ->where('type', 'text')->whereNotNull('user_id')
+                ->orderBy('id')->get()
+                ->filter(fn ($row) => trim($this->plain((string) $row->content)) !== '')->values();
             $members = $this->db->table('chat_channel_user')->where('channel_id', $channel->id)->get();
 
             $rooms++;

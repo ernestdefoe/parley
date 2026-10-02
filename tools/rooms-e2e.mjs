@@ -37,6 +37,23 @@ const wait = (p, fn, a, t = 10000) => p.waitForFunction(fn, { timeout: t, pollin
 
 try {
   const admin = await open('roomadmin');
+
+  // The admin page itself, by clicking — the API alone once passed while the
+  // "Add a room" button did nothing at all.
+  const adminPage = await (contexts.roomadmin).newPage();
+  await adminPage.setViewport({ width: 1440, height: 900 });
+  adminPage.on('pageerror', (e) => out.push(`PAGEERROR admin page: ${e.message}`));
+  await adminPage.goto(BASE + '/admin#/extension/ernestdefoe-parley', { waitUntil: 'networkidle2' });
+  await adminPage.waitForFunction(() => [...document.querySelectorAll('button')].some((b) => b.textContent.trim() === 'Add a room'), { timeout: 15000 });
+  await adminPage.evaluate(() => [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Add a room').click());
+  check('clicking "Add a room" opens the form', await adminPage.waitForFunction(() => !!document.querySelector('.ParleyRooms-editor'), { timeout: 5000 }).then(() => true, () => false));
+  await adminPage.type('#ParleyRooms-name', 'QA Clicked Room');
+  await adminPage.evaluate(() => document.querySelector('.ParleyRooms-editor').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+  check('saving it lists the room', await adminPage.waitForFunction(() => [...document.querySelectorAll('.ParleyRooms-info b')].some((b) => b.textContent === 'QA Clicked Room'), { timeout: 8000 }).then(() => true, () => false));
+  const clicked = ((await api(admin, 'GET', '/parley/admin/rooms')).rooms || []).find((r) => r.name === 'QA Clicked Room');
+  if (clicked) await api(admin, 'DELETE', `/parley/admin/rooms/${clicked.id}`);
+  await adminPage.close();
+
   const made = {};
   for (const [key, body] of Object.entries({
     lounge: { name: 'QA Lounge', emoji: '🏈', description: 'Talk about anything' },
