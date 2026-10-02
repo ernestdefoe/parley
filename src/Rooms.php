@@ -76,28 +76,55 @@ class Rooms
      * are in it, how many unread, and how many of its members are online now.
      * A fixed number of queries however many rooms there are.
      *
+     * Which rooms: by default the top level (conferences) plus any child room
+     * the viewer has joined — what the rail draws before anything is opened,
+     * and what the heartbeat carries every 30 seconds. With $parentId, that
+     * room's children, fetched when a conference is opened in the rail.
+     *
      * @param  array<int, int>  $unread  conversation id => unread, from Conversations
      * @return list<array<string, mixed>>
      */
-    public function listFor(User $viewer, array $unread): array
+    public function listFor(User $viewer, array $unread, ?int $parentId = null): array
     {
-        $rooms = array_values(array_filter(
+        $all = array_values(array_filter(
             $this->db->table('parley_conversations')->where('type', 'room')->whereNull('archived_at')
                 ->orderBy('position')->orderBy('id')->get()->all(),
             fn ($room) => $this->canView($room, $viewer)
         ));
+
+        if ($all === []) {
+            return [];
+        }
+
+        $joined = array_fill_keys(
+            $this->db->table('parley_participants')->whereIn('conversation_id', array_map(fn ($r) => (int) $r->id, $all))->where('user_id', $viewer->id)
+                ->pluck('conversation_id')->map(fn ($id) => (int) $id)->all(),
+            true
+        );
+
+        // Children per parent, among the rooms this viewer can see: the count
+        // the rail shows on a conference, and the unread it rolls up.
+        $childCount = [];
+        $childUnread = [];
+        foreach ($all as $room) {
+            if ($room->parent_id) {
+                $p = (int) $room->parent_id;
+                $childCount[$p] = ($childCount[$p] ?? 0) + 1;
+                if (isset($joined[(int) $room->id])) {
+                    $childUnread[$p] = ($childUnread[$p] ?? 0) + ($unread[(int) $room->id] ?? 0);
+                }
+            }
+        }
+
+        $rooms = array_values(array_filter($all, fn ($room) => $parentId !== null
+            ? (int) $room->parent_id === $parentId
+            : ($room->parent_id === null || isset($joined[(int) $room->id]))));
 
         if ($rooms === []) {
             return [];
         }
 
         $ids = array_map(fn ($r) => (int) $r->id, $rooms);
-
-        $joined = array_fill_keys(
-            $this->db->table('parley_participants')->whereIn('conversation_id', $ids)->where('user_id', $viewer->id)
-                ->pluck('conversation_id')->map(fn ($id) => (int) $id)->all(),
-            true
-        );
 
         $members = [];
         foreach ($this->db->table('parley_participants')->whereIn('conversation_id', $ids)
@@ -122,6 +149,8 @@ class Rooms
         }
 
         return array_map(fn ($room) => $this->card($room) + [
+            'children' => $childCount[(int) $room->id] ?? 0,
+            'childUnread' => $childUnread[(int) $room->id] ?? 0,
             'joined' => isset($joined[(int) $room->id]),
             'unread' => isset($joined[(int) $room->id]) ? ($unread[(int) $room->id] ?? 0) : 0,
             'members' => $members[(int) $room->id] ?? 0,
@@ -139,6 +168,8 @@ class Rooms
             'description' => $room->description,
             'emoji' => $room->emoji,
             'imageUrl' => ! empty($room->image_path) ? resolve(RoomImages::class)->url($room->image_path) : null,
+            'imageDarkUrl' => ! empty($room->image_dark_path) ? resolve(RoomImages::class)->url($room->image_dark_path) : null,
+            'parentId' => ! empty($room->parent_id) ? (int) $room->parent_id : null,
             'tagId' => $room->tag_id ? (int) $room->tag_id : null,
             // The tag's own icon and colour, so a room with no emoji wears its
             // tag's badge — a conference room shows the conference logo.
@@ -221,6 +252,15 @@ class Rooms
             'updated_at' => date('Y-m-d H:i:s'),
         ];
 
+        if (array_key_exists('parentId', $data)) {
+            $parent = $data['parentId'] ? $this->find((int) $data['parentId']) : null;
+            // One level only: a team under a conference, never deeper, and
+            // never under itself.
+            $values['parent_id'] = $parent && ! $parent->parent_id && (! $room || (int) $parent->id !== (int) $room->id)
+                ? (int) $parent->id
+                : null;
+        }
+
         if (array_key_exists('archived', $data)) {
             $values['archived_at'] = $data['archived'] ? ($room->archived_at ?? date('Y-m-d H:i:s')) : null;
         }
@@ -253,6 +293,8 @@ class Rooms
     public function destroy(object $room): void
     {
         resolve(RoomImages::class)->remove($room);
+        // Its teams move up a level rather than disappearing with it.
+        $this->db->table('parley_conversations')->where('parent_id', $room->id)->update(['parent_id' => null]);
         $this->db->table('parley_conversations')->where('id', $room->id)->where('type', 'room')->delete();
     }
 

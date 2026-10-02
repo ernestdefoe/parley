@@ -36,6 +36,10 @@ export default class ParleyState {
 
     /** Rooms this person can see, in the admin's order, from the heartbeat. */
     this.rooms = [];
+    /** A conference's team rooms, fetched when it is opened in the rail. */
+    this.childRooms = {};
+    /** Which parent rooms are open in the rail; remembered between visits. */
+    this.expanded = new Set();
     /** Every person met in a message, by id — a room's authors are not known up front. */
     this.cards = new Map();
 
@@ -138,6 +142,8 @@ export default class ParleyState {
         this.guests = r.guests || 0;
         this.rooms = r.rooms || [];
         this.loaded = true;
+        // Keep the open conferences' team lists as fresh as the rest.
+        this.expanded.forEach((id) => this.loadChildren(id));
         this.applyUnread(r.unread || {});
         m.redraw();
       });
@@ -256,7 +262,28 @@ export default class ParleyState {
   }
 
   room(id) {
-    return this.rooms.find((r) => r.id === Number(id)) || null;
+    id = Number(id);
+    return this.rooms.find((r) => r.id === id) || Object.values(this.childRooms).flat().find((r) => r.id === id) || null;
+  }
+
+  loadChildren(parentId) {
+    return api.rooms(parentId).then((r) => {
+      if (r && r.rooms) {
+        this.childRooms[parentId] = r.rooms;
+        m.redraw();
+      }
+    });
+  }
+
+  toggleRoomGroup(parentId) {
+    parentId = Number(parentId);
+    if (this.expanded.has(parentId)) {
+      this.expanded.delete(parentId);
+    } else {
+      this.expanded.add(parentId);
+      if (!this.childRooms[parentId]) this.loadChildren(parentId);
+    }
+    this.save();
   }
 
   isRoom(id) {
@@ -668,7 +695,7 @@ export default class ParleyState {
     try {
       localStorage.setItem(
         this.key(),
-        JSON.stringify({ open: this.open, heads: this.heads, min: [...this.minimised], railHidden: this.railHidden })
+        JSON.stringify({ open: this.open, heads: this.heads, min: [...this.minimised], railHidden: this.railHidden, expanded: [...this.expanded] })
       );
     } catch (e) {
       // Private windows refuse storage; Parley works without it.
@@ -682,6 +709,7 @@ export default class ParleyState {
       this.heads = (s.heads || []).map(Number);
       this.minimised = new Set((s.min || []).map(Number));
       this.railHidden = !!s.railHidden;
+      this.expanded = new Set((s.expanded || []).map(Number));
     } catch (e) {
       // Nothing saved, or storage refused.
     }

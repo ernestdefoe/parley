@@ -21,6 +21,7 @@ export default class RoomsManager extends Component {
     this.form = {};
     this.confirmDelete = null;
     this.dragging = null;
+    this.openGroups = new Set();
     this.load();
   }
 
@@ -45,9 +46,9 @@ export default class RoomsManager extends Component {
             Mithril threw on the redraw after "Add a room", so the click
             appeared to do nothing.
           */}
-          {[...this.rooms.map((r) => (
+          {[...this.visible().map((r) => (
             <li key={r.id}
-              className={'ParleyRooms-row' + (r.archived ? ' archived' : '') + (this.dragging === r.id ? ' dragging' : '')}
+              className={'ParleyRooms-row' + (r.parentId ? ' child' : '') + (r.archived ? ' archived' : '') + (this.dragging === r.id ? ' dragging' : '')}
               draggable={this.editing === null ? 'true' : 'false'}
               ondragstart={(e) => {
                 this.dragging = r.id;
@@ -59,12 +60,15 @@ export default class RoomsManager extends Component {
                 if (this.dragging === null || this.dragging === r.id) return;
                 const from = this.rooms.findIndex((x) => x.id === this.dragging);
                 const to = this.rooms.findIndex((x) => x.id === r.id);
+                // Rooms move among their own level: a team stays under its conference.
+                if ((this.rooms[from].parentId || null) !== (r.parentId || null)) return;
                 const [moved] = this.rooms.splice(from, 1);
                 this.rooms.splice(to, 0, moved);
               }}
               ondragend={() => {
                 this.dragging = null;
-                app.request({ method: 'POST', url: url('/order'), body: { ids: this.rooms.map((x) => x.id) } }).then((res) => {
+                const level = this.rooms.find((x) => x.id === r.id)?.parentId || null;
+                app.request({ method: 'POST', url: url('/order'), body: { ids: this.rooms.filter((x) => (x.parentId || null) === level).map((x) => x.id) } }).then((res) => {
                   this.rooms = res.rooms;
                   m.redraw();
                 });
@@ -76,6 +80,13 @@ export default class RoomsManager extends Component {
                 <span className="ParleyRooms-info">
                   <b>{r.name}</b>
                   <small>
+                    {this.children(r.id).length ? [
+                      <a href="#" onclick={(e) => {
+                        e.preventDefault();
+                        this.openGroups.has(r.id) ? this.openGroups.delete(r.id) : this.openGroups.add(r.id);
+                      }}>{t(this.openGroups.has(r.id) ? 'hide_rooms' : 'show_rooms', { count: this.children(r.id).length })}</a>,
+                      ' · ',
+                    ] : null}
                     {r.tagId ? t('in_tag', { tag: (tags.find((x) => Number(x.id()) === r.tagId) || { name: () => '?' }).name() }) : t('everyone')}
                     {' · '}{t('members', { count: r.members || 0 })}
                     {r.readonly ? [' · ', t('announcements')] : null}
@@ -93,6 +104,12 @@ export default class RoomsManager extends Component {
                     </Button>,
                     <input type="file" hidden accept="image/png,image/jpeg,image/webp,image/gif" onchange={(e) => this.upload(r, e)} />,
                     r.imageUrl ? <Button className="Button" onclick={() => this.removeImage(r)}>{t('remove_logo')}</Button> : null,
+                    r.imageUrl ? (
+                      <Button className="Button" onclick={(e) => e.currentTarget.parentNode.querySelector('input.dark').click()}>
+                        {r.imageDarkUrl && !r.imageDarkUrl.includes('-dark-auto-') ? t('replace_dark_logo') : t('upload_dark_logo')}
+                      </Button>
+                    ) : null,
+                    r.imageUrl ? <input type="file" className="dark" hidden accept="image/png,image/jpeg,image/webp,image/gif" onchange={(e) => this.upload(r, e, 'dark')} /> : null,
                     <Button className="Button" onclick={() => this.save(r, { archived: !r.archived })}>{r.archived ? t('restore') : t('archive')}</Button>,
                     <Button className="Button Button--danger" onclick={() => (this.confirmDelete = r.id)}>{t('delete')}</Button>,
                   ]}
@@ -136,6 +153,11 @@ export default class RoomsManager extends Component {
           <option value="">{t('everyone')}</option>
           {tags.map((tag) => <option value={tag.id()}>{t('same_as_tag', { tag: tag.name() })}</option>)}
         </select>
+        <label htmlFor="ParleyRooms-parent">{t('parent')}</label>
+        <select className="FormControl" id="ParleyRooms-parent" value={f.parentId || ''} onchange={(e) => (f.parentId = e.target.value || null)}>
+          <option value="">{t('no_parent')}</option>
+          {this.rooms.filter((r) => !r.parentId && r.id !== this.editing).map((r) => <option value={r.id}>{r.name}</option>)}
+        </select>
         <label className="checkbox">
           <input type="checkbox" id="ParleyRooms-readonly" checked={!!f.readonly} onchange={(e) => (f.readonly = e.target.checked)} /> {t('readonly')}
         </label>
@@ -150,7 +172,9 @@ export default class RoomsManager extends Component {
   edit(room) {
     this.confirmDelete = null;
     this.editing = room ? room.id : 'new';
-    this.form = room ? { name: room.name, description: room.description || '', emoji: room.emoji || '', tagId: room.tagId, readonly: room.readonly } : { name: '', description: '', emoji: '', tagId: null, readonly: false };
+    this.form = room
+      ? { name: room.name, description: room.description || '', emoji: room.emoji || '', tagId: room.tagId, readonly: room.readonly, parentId: room.parentId }
+      : { name: '', description: '', emoji: '', tagId: null, readonly: false, parentId: null };
   }
 
   save(room, data) {
@@ -163,14 +187,24 @@ export default class RoomsManager extends Component {
     });
   }
 
-  upload(room, e) {
+  /** Top-level rooms, each followed by its children when its group is open. */
+  visible() {
+    const top = this.rooms.filter((r) => !r.parentId || !this.rooms.some((p) => p.id === r.parentId));
+    return top.flatMap((r) => [r, ...(this.openGroups.has(r.id) ? this.children(r.id) : [])]);
+  }
+
+  children(id) {
+    return this.rooms.filter((r) => r.parentId === id);
+  }
+
+  upload(room, e, variant = 'light') {
     const file = e.target.files[0];
     e.target.value = '';
     if (!file) return;
     const body = new FormData();
     body.append('image', file);
     this.uploading = room.id;
-    app.request({ method: 'POST', url: url('/' + room.id + '/image'), body, serialize: (raw) => raw })
+    app.request({ method: 'POST', url: url('/' + room.id + '/image' + (variant === 'dark' ? '?variant=dark' : '')), body, serialize: (raw) => raw })
       .then((r) => {
         this.rooms = r.rooms;
       })

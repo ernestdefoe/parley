@@ -41,7 +41,9 @@ class RoomsController extends Controller
         $this->member($actor);
 
         if ($route === 'ernestdefoe-parley.rooms') {
-            return ['rooms' => $this->rooms->listFor($actor, $this->conversations->unreadCounts($actor->id))];
+            $parent = (int) $this->query($request, 'parent') ?: null;
+
+            return ['rooms' => $this->rooms->listFor($actor, $this->conversations->unreadCounts($actor->id), $parent)];
         }
 
         $room = $this->room($request);
@@ -86,7 +88,7 @@ class RoomsController extends Controller
         $file->moveTo($tmp);
 
         try {
-            resolve(\Ernestdefoe\Parley\RoomImages::class)->set($room, $tmp);
+            resolve(\Ernestdefoe\Parley\RoomImages::class)->set($room, $tmp, $this->query($request, 'variant') === 'dark' ? 'dark' : 'light');
         } finally {
             @unlink($tmp);
         }
@@ -96,7 +98,8 @@ class RoomsController extends Controller
 
     private function removeImage(ServerRequestInterface $request): array
     {
-        resolve(\Ernestdefoe\Parley\RoomImages::class)->remove($this->room($request));
+        $variant = $this->query($request, 'variant');
+        resolve(\Ernestdefoe\Parley\RoomImages::class)->remove($this->room($request), in_array($variant, ['light', 'dark'], true) ? $variant : 'both');
 
         return ['rooms' => $this->rooms->all()];
     }

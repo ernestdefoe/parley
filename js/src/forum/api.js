@@ -6,7 +6,7 @@ const url = (path) => app.forum.attribute('apiUrl') + '/parley' + path;
 const call = (method, path, body, extra = {}) => app.request({ method, url: url(path), body, ...extra });
 
 export default {
-  rooms: () => call('GET', '/rooms', undefined, { background: true, errorHandler: () => {} }),
+  rooms: (parent) => call('GET', '/rooms' + (parent ? `?parent=${parent}` : ''), undefined, { background: true, errorHandler: () => {} }),
   joinRoom: (id) => call('POST', `/rooms/${id}/join`),
   leaveRoom: (id) => call('POST', `/rooms/${id}/leave`),
   /** A page closing says goodbye; a beacon outlives the page. */

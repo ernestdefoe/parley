@@ -16,8 +16,13 @@ export default function RoomTile(room, size = 36) {
   let className = 'pl-room-tile';
 
   if (room && room.imageUrl) {
-    face = <img src={room.imageUrl} alt="" loading="lazy" />;
-    className += ' image';
+    // Both versions are in the page; the theme decides which shows, so a
+    // switch to dark mode needs no redraw. No dark version: the logo itself.
+    face = [
+      <img className="pl-logo-light" src={room.imageUrl} alt="" loading="lazy" />,
+      room.imageDarkUrl ? <img className="pl-logo-dark" src={room.imageDarkUrl} alt="" loading="lazy" /> : null,
+    ];
+    className += ' image' + (room.imageDarkUrl ? ' has-dark' : '');
   } else if (room && room.emoji) {
     face = room.emoji;
   } else if (room && room.tagIcon) {

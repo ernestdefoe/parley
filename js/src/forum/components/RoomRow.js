@@ -2,6 +2,7 @@ import app from 'flarum/forum/app';
 import Component from 'flarum/common/Component';
 import extractText from 'flarum/common/utils/extractText';
 import RoomTile from './RoomTile';
+import Icons from '../icons';
 
 const t = (key, params) => app.translator.trans('ernestdefoe-parley.forum.rooms.' + key, params);
 
@@ -9,10 +10,14 @@ const t = (key, params) => app.translator.trans('ernestdefoe-parley.forum.rooms.
 export default class RoomRow extends Component {
   view() {
     const r = this.attrs.room;
-    const open = () => app.parley.openRoom(r.id);
+    const s = app.parley;
+    const open = () => s.openRoom(r.id);
+    const isOpen = s.expanded.has(r.id);
+    // A conference's badge counts its own unread and its joined teams'.
+    const unread = (r.unread || 0) + (isOpen ? 0 : r.childUnread || 0);
 
     return (
-      <div className={'pl-person pl-room' + (r.joined ? ' joined' : '')} tabindex="0" role="button"
+      <div className={'pl-person pl-room' + (r.joined ? ' joined' : '') + (this.attrs.child ? ' child' : '')} tabindex="0" role="button"
         aria-label={extractText(t('open', { name: r.name }))}
         onclick={open}
         onkeydown={(e) => {
@@ -30,7 +35,20 @@ export default class RoomRow extends Component {
             {r.description || (r.online ? null : t('members_count', { count: r.members }))}
           </div>
         </div>
-        {r.unread ? <span className="pl-unread">{r.unread > 99 ? '99+' : r.unread}</span> : null}
+        {unread ? <span className="pl-unread">{unread > 99 ? '99+' : unread}</span> : null}
+        {r.children ? (
+          <button className={'pl-ib pl-expand' + (isOpen ? ' open' : '')} aria-expanded={String(isOpen)}
+            aria-label={extractText(t(isOpen ? 'hide_teams' : 'show_teams', { count: r.children, name: r.name }))}
+            title={extractText(t(isOpen ? 'hide_teams' : 'show_teams', { count: r.children, name: r.name }))}
+            onclick={(e) => {
+              e.stopPropagation();
+              s.toggleRoomGroup(r.id);
+            }}
+          >
+            <span className="pl-c">{r.children}</span>
+            {Icons.chev()}
+          </button>
+        ) : null}
       </div>
     );
   }

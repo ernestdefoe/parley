@@ -104,8 +104,9 @@ export default class InboxPage extends Page {
 
     return [
       <div className="pl-inbox-sec">{t('rooms')}</div>,
-      s.rooms.map((r) => (
-        <a className={'pl-inbox-item' + (r.id === this.selected ? ' active' : '') + (r.unread ? ' unread' : '')} href={app.route('parley.conversation', { id: r.id })}
+      // Conferences, then the team rooms you have joined, each under its own.
+      s.rooms.filter((r) => !r.parentId).flatMap((p) => [p, ...s.rooms.filter((c) => c.parentId === p.id)]).map((r) => (
+        <a className={'pl-inbox-item' + (r.parentId ? ' child' : '') + (r.id === this.selected ? ' active' : '') + (r.unread ? ' unread' : '')} href={app.route('parley.conversation', { id: r.id })}
           onclick={(e) => {
             e.preventDefault();
             const go = () => m.route.set(app.route('parley.conversation', { id: r.id }));

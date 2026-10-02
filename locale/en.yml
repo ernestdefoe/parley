@@ -46,6 +46,8 @@ ernestdefoe-parley:
       members_count: "{count, plural, one {# member} other {# members}}"
       announcements: Announcements
       readonly_note: Only moderators post in this room.
+      show_teams: "Show {name}'s {count, plural, one {# room} other {# rooms}}"
+      hide_teams: "Hide {name}'s rooms"
       empty: Nothing has been said here yet. Start it off.
 
     status:
@@ -157,7 +159,7 @@ ernestdefoe-parley:
   admin:
     rooms:
       title: Rooms
-      help: Drag a room to change its place in the list. A room tied to a tag is seen by exactly the people who can see that tag. A room shows its uploaded logo, else its emoji, else its tag's icon.
+      help: Drag a room to change its place in the list. A room tied to a tag is seen by exactly the people who can see that tag. A room shows its uploaded logo, else its emoji, else its tag's icon. In dark mode a logo shows its dark version; without one uploaded, Parley makes one when the logo would not read on dark.
       add: Add a room
       edit: Edit
       archive: Archive
@@ -167,6 +169,12 @@ ernestdefoe-parley:
       upload_logo: Upload logo
       replace_logo: Replace logo
       remove_logo: Remove logo
+      upload_dark_logo: Dark mode logo
+      replace_dark_logo: Replace dark mode logo
+      parent: Sits under
+      no_parent: Nothing — a top-level room
+      show_rooms: "{count, plural, one {# room} other {# rooms}} inside"
+      hide_rooms: Hide the rooms inside
       delete_confirm: Delete it and every message in it
       cancel: Cancel
       save: Save

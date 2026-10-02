@@ -93,7 +93,10 @@ export default class Rail extends Component {
   /** Rooms first: they are where the forum talks together. */
   rooms(f) {
     const s = app.parley;
-    const rooms = s.rooms.filter((r) => !f || r.name.toLowerCase().includes(f) || (r.description || '').toLowerCase().includes(f));
+    const match = (r) => !f || r.name.toLowerCase().includes(f) || (r.description || '').toLowerCase().includes(f);
+    const top = s.rooms.filter((r) => !r.parentId);
+    // A search reaches into opened conferences too.
+    const rooms = top.filter((r) => match(r) || (s.childRooms[r.id] || []).some(match));
     if (!rooms.length) return null;
     const open = s.sections.rooms !== false;
     const online = rooms.reduce((a, r) => a + (r.online || 0), 0);
@@ -102,7 +105,14 @@ export default class Rail extends Component {
       <button className="pl-sec-h" aria-expanded={String(open)} onclick={() => (s.sections.rooms = !open)}>
         {Icons.chev()} {t('rooms.title')} <span className="pl-c">{online ? online + ' ' + extractText(t('rooms.here')) : rooms.length}</span>
       </button>,
-      open ? rooms.map((r) => <RoomRow key={'room-' + r.id} room={r} />) : null,
+      open
+        ? rooms.flatMap((r) => {
+            const children = s.expanded.has(r.id) || f ? (s.childRooms[r.id] || []).filter(match) : [];
+            // A closed conference shows none of its teams, joined or not; their
+            // unread rolls up into the conference's own badge instead.
+            return [<RoomRow key={'room-' + r.id} room={r} />, ...children.map((c) => <RoomRow key={'room-' + c.id} room={c} child={true} />)];
+          })
+        : null,
     ];
   }
 
