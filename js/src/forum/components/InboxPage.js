@@ -35,6 +35,7 @@ export default class InboxPage extends Page {
     }
 
     app.parley.pageConversation = this.selected;
+    if (this.selected) app.parley.touchRoom(this.selected);
 
     api.conversations().then((r) => {
       this.list = r.conversations;
@@ -51,7 +52,10 @@ export default class InboxPage extends Page {
     if (id !== this.selected) {
       this.selected = id;
       app.parley.pageConversation = id;
-      if (id) app.parley.load(id);
+      if (id) {
+        app.parley.load(id);
+        app.parley.touchRoom(id);
+      }
     }
   }
 

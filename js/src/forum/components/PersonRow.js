@@ -56,6 +56,19 @@ export default class PersonRow extends Component {
     const items = new ItemList();
     const href = activityHref(p);
 
+    // In a room you can see: "Go to" opens the room itself.
+    if (p.activity && p.activity.roomId) {
+      items.add(
+        'goto',
+        <button className="pl-ib" title={extractText(t('rail.go_to', { place: p.activity.label }))} aria-label={extractText(t('rail.go_to', { place: p.activity.label }))}
+          onclick={() => app.parley.openRoom(p.activity.roomId)}
+        >
+          {Icons.goto()}
+        </button>,
+        100
+      );
+    }
+
     if (href) {
       items.add(
         'goto',

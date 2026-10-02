@@ -25,7 +25,7 @@ class PresenceStore
 
     public const STATUSES = ['online', 'away', 'busy', 'invisible'];
 
-    public const PLACES = ['index', 'discussion', 'reply', 'tag', 'user', 'messages', 'other'];
+    public const PLACES = ['index', 'discussion', 'reply', 'tag', 'user', 'messages', 'room', 'voice', 'other'];
 
     public function __construct(
         protected ConnectionInterface $db
@@ -62,7 +62,17 @@ class PresenceStore
             $place = 'other';
         }
 
-        $existing = $this->db->table('parley_presence')->where('visitor_key', $visitorKey)->first(['status', 'away_since', 'last_seen_at', 'place', 'discussion_id', 'tag_id']);
+        // A room is only recorded if it really is one. Whether a viewer may
+        // see its name is decided when the list is read, per viewer.
+        $roomId = in_array($place, ['room', 'voice'], true) ? $this->positiveOrNull($where['roomId'] ?? null) : null;
+        if ($roomId && ! $this->db->table('parley_conversations')->where('id', $roomId)->where('type', 'room')->exists()) {
+            $roomId = null;
+        }
+        if (! $roomId && in_array($place, ['room', 'voice'], true)) {
+            $place = 'other';
+        }
+
+        $existing = $this->db->table('parley_presence')->where('visitor_key', $visitorKey)->first(['status', 'away_since', 'last_seen_at', 'place', 'discussion_id', 'tag_id', 'room_id']);
         $wasOnline = $existing && strtotime((string) $existing->last_seen_at) >= time() - self::WINDOW;
         $member = $actor && ! $actor->isGuest();
 
@@ -84,6 +94,7 @@ class PresenceStore
                 'discussion_id' => $discussionId,
                 'near_number' => $discussionId ? $this->positiveOrNull($where['near'] ?? null) : null,
                 'tag_id' => $this->positiveOrNull($where['tagId'] ?? null),
+                'room_id' => $roomId,
                 'away_since' => $awaySince,
                 'last_seen_at' => $now,
             ]
@@ -103,7 +114,9 @@ class PresenceStore
         if (! $wasOnline || $existing->status !== $status) {
             return 'list';
         }
-        if ($existing->place !== $place || (int) $existing->discussion_id !== (int) $discussionId || (int) $existing->tag_id !== (int) $this->positiveOrNull($where['tagId'] ?? null)) {
+        if ($existing->place !== $place || (int) $existing->discussion_id !== (int) $discussionId
+            || (int) $existing->tag_id !== (int) $this->positiveOrNull($where['tagId'] ?? null)
+            || (int) $existing->room_id !== (int) $roomId) {
             return 'moved';
         }
 

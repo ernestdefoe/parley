@@ -23,7 +23,8 @@ class OnlineList
         protected Relations $relations,
         protected Gate $gate,
         protected People $people,
-        protected SlugManager $slugs
+        protected SlugManager $slugs,
+        protected Rooms $rooms
     ) {
     }
 
@@ -48,6 +49,7 @@ class OnlineList
 
         $discussions = $this->discussions($viewer, $rowsByUser);
         $tags = $this->tags($viewer, $rowsByUser);
+        $roomNames = $this->roomNames($viewer, $rowsByUser);
 
         $online = [];
         $followingOffline = [];
@@ -73,7 +75,7 @@ class OnlineList
 
                 $online[] = $this->people->card($user) + [
                     'status' => $row->status,
-                    'activity' => $this->activity($row, $discussions, $tags),
+                    'activity' => $this->activity($row, $discussions, $tags, $roomNames),
                     'following' => isset($follows[$id]),
                 ];
             } elseif (isset($follows[$id])) {
@@ -108,7 +110,7 @@ class OnlineList
      *
      * @return array{verb: string, label: string|null, discussionId?: int, slug?: string, near?: int|null, tagSlug?: string, idleMinutes?: int}|null
      */
-    private function activity(object $row, array $discussions, array $tags): ?array
+    private function activity(object $row, array $discussions, array $tags, array $roomNames = []): ?array
     {
         if ($row->status === 'away') {
             $minutes = $row->away_since ? max(1, (int) floor((time() - strtotime($row->away_since)) / 60)) : 1;
@@ -118,6 +120,15 @@ class OnlineList
 
         if ($row->status === 'busy') {
             return ['verb' => 'busy', 'label' => null];
+        }
+
+        // In a room, by voice or by chat — named only if the viewer can see it.
+        if (in_array($row->place, ['room', 'voice'], true) && $row->room_id && isset($roomNames[(int) $row->room_id])) {
+            return [
+                'verb' => $row->place === 'voice' ? 'in_voice' : 'chatting',
+                'label' => $roomNames[(int) $row->room_id],
+                'roomId' => (int) $row->room_id,
+            ];
         }
 
         if (in_array($row->place, ['discussion', 'reply'], true) && $row->discussion_id && isset($discussions[(int) $row->discussion_id])) {
@@ -161,6 +172,36 @@ class OnlineList
         $slugger = $this->slugs->forResource(Discussion::class);
         foreach (Discussion::whereVisibleTo($viewer)->whereIn('discussions.id', array_keys($ids))->get() as $d) {
             $out[(int) $d->id] = ['id' => (int) $d->id, 'title' => $d->title, 'slug' => $slugger->toSlug($d)];
+        }
+
+        return $out;
+    }
+
+    /**
+     * Names of the rooms people are in, for the rooms this viewer can see.
+     * A staff room someone is chatting in is not named to a member who
+     * cannot see it: their line falls back to "Online".
+     *
+     * @return array<int, string>
+     */
+    private function roomNames(User $viewer, array $rowsByUser): array
+    {
+        $ids = [];
+        foreach ($rowsByUser as $row) {
+            if (! empty($row->room_id)) {
+                $ids[(int) $row->room_id] = true;
+            }
+        }
+
+        if ($ids === []) {
+            return [];
+        }
+
+        $out = [];
+        foreach ($this->rooms->findMany(array_keys($ids)) as $room) {
+            if ($this->rooms->canView($room, $viewer)) {
+                $out[(int) $room->id] = (string) $room->name;
+            }
         }
 
         return $out;

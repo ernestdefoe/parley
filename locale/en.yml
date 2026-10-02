@@ -6,6 +6,8 @@ ernestdefoe-parley:
       replying: Writing a reply
       browsing: Browsing
       all_discussions: All discussions
+      chatting: Chatting
+      in_voice: In voice
       away: Away
       idle: "idle {minutes}m"
       busy: Busy

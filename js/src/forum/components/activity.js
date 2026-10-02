@@ -26,6 +26,10 @@ export function activityLine(p) {
       return [t('browsing'), ' · ', <b>{a.label}</b>];
     case 'browsing_all':
       return [t('browsing'), ' · ', t('all_discussions')];
+    case 'chatting':
+      return [t('chatting'), ' · ', <b>{a.label}</b>];
+    case 'in_voice':
+      return [t('in_voice'), ' · ', <b>{a.label}</b>];
     case 'away':
       return [t('away'), ' · ', t('idle', { minutes: a.idleMinutes })];
     case 'busy':
@@ -43,7 +47,7 @@ export function presenceLine(p) {
   }
   if (p.status === 'away') return extractText(t('away')) + ' · ' + extractText(t('idle', { minutes: a?.idleMinutes || 1 }));
   if (p.status === 'busy') return extractText(t('busy')) + ' · ' + extractText(app.parley.callsInstalled ? t('calls_muted') : t('dnd'));
-  if (a && (a.verb === 'reading' || a.verb === 'replying')) return extractText(t(a.verb)) + ' · ' + a.label;
+  if (a && ['reading', 'replying', 'chatting', 'in_voice'].includes(a.verb)) return extractText(t(a.verb)) + ' · ' + a.label;
   return extractText(t('active_now'));
 }
 
@@ -66,6 +70,10 @@ export function activityHref(p) {
  */
 export function ownActivity() {
   const w = app.parley.where();
+  if (w.place === 'voice' || w.place === 'room') {
+    const room = app.parley.room(w.roomId) || app.parley.conv(w.roomId)?.summary?.room;
+    return room ? { verb: w.place === 'voice' ? 'in_voice' : 'chatting', label: room.name, roomId: w.roomId } : null;
+  }
   if (w.place === 'discussion' || w.place === 'reply') {
     const d = w.discussionId && app.store.getById('discussions', String(w.discussionId));
     if (!d) return null;

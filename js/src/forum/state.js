@@ -8,6 +8,8 @@ const POLL_OPEN = 5000;
 const TYPING_TTL = 6000;
 const TYPING_SEND_EVERY = 3000;
 const MAX_HEADS = 6;
+/** How long after you last used a room you still count as chatting in it. */
+const ROOM_ACTIVE_MS = 3 * 60 * 1000;
 export const RAIL_WIDTH = 300;
 export const DOCK_BREAKPOINT = 1200;
 export const MOBILE_BREAKPOINT = 820;
@@ -138,6 +140,11 @@ export default class ParleyState {
       delete where.tagSlug;
     }
 
+    // What you are doing, most present first: talking in a room's voice
+    // chat, writing a reply, chatting in a room, then the page you are on.
+    const voice = app.parleyVoice && app.parleyVoice.session;
+    if (voice) return { place: 'voice', roomId: voice.roomId };
+
     // Writing a reply is its own activity: "Writing a reply · <thread>".
     const c = app.composer;
     const open = c && (typeof c.isVisible === 'function' ? c.isVisible() : c.position && c.position !== 'hidden');
@@ -145,9 +152,31 @@ export default class ParleyState {
     if (composing) {
       where.place = 'reply';
       where.discussionId = Number(app.composer.body.attrs.discussion.id());
+      return where;
     }
 
+    const room = this.activeRoom();
+    if (room) return { place: 'room', roomId: room };
+
     return where;
+  }
+
+  /**
+   * The room you are chatting in, if you are: one you opened, typed in or
+   * sent to in the last few minutes, still open and not folded away. A room
+   * window left idle stops counting, so the line does not claim a room you
+   * have drifted away from.
+   */
+  activeRoom() {
+    const use = this.roomUse;
+    if (!use || Date.now() - use.at > ROOM_ACTIVE_MS) return null;
+    const visible = this.pageConversation === use.id || (this.open.includes(use.id) && !this.minimised.has(use.id));
+    return visible && this.isRoom(use.id) ? use.id : null;
+  }
+
+  touchRoom(id) {
+    id = Number(id);
+    if (this.isRoom(id)) this.roomUse = { id, at: Date.now() };
   }
 
   beat() {
@@ -176,7 +205,7 @@ export default class ParleyState {
   }
 
   placeKey(w) {
-    return [w.place, w.discussionId || '', w.tagId || ''].join(':');
+    return [w.place, w.discussionId || '', w.tagId || '', w.roomId || ''].join(':');
   }
 
   // ── Idle → Away ───────────────────────────────────────────────────────────
@@ -386,6 +415,7 @@ export default class ParleyState {
     }
     this.fit();
     this.railSheet = false;
+    this.touchRoom(id);
     this.markRead(id);
     this.save();
     m.redraw();
@@ -607,6 +637,7 @@ export default class ParleyState {
   // ── Messages out ──────────────────────────────────────────────────────────
 
   send(id, body) {
+    this.touchRoom(id);
     const replyTo = this.replyTo[id];
     delete this.replyTo[id];
     return api.send(id, body, replyTo ? replyTo.id : null).then((r) => this.received(r.message));
@@ -629,6 +660,7 @@ export default class ParleyState {
   }
 
   typing(id) {
+    this.touchRoom(id);
     const now = Date.now();
     if (now - (this.lastTypingSent[id] || 0) < TYPING_SEND_EVERY) return;
     this.lastTypingSent[id] = now;

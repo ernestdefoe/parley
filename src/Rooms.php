@@ -338,6 +338,12 @@ class Rooms
         ])->values()->all());
     }
 
+    /** @return list<object> rooms with these ids, in one query */
+    public function findMany(array $ids): array
+    {
+        return $ids === [] ? [] : $this->db->table('parley_conversations')->where('type', 'room')->whereIn('id', $ids)->get()->all();
+    }
+
     public function find(int $id): ?object
     {
         $room = $this->db->table('parley_conversations')->find($id);
