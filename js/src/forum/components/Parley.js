@@ -18,6 +18,63 @@ export default class Parley extends Component {
   oncreate(vnode) {
     super.oncreate(vnode);
     this.sync();
+
+    // Re-measured when the page scrolls or resizes, which is when a theme's
+    // back-to-top button comes and goes.
+    let pending = null;
+    this.measure = () => {
+      if (pending) return;
+      pending = setTimeout(() => {
+        pending = null;
+        this.clearCorner(vnode.dom);
+        // A theme fades its button in and out. Look again once the fade is
+        // over, so a half-faded button neither keeps nor misses the lift.
+        clearTimeout(this.settle);
+        this.settle = setTimeout(() => this.clearCorner(vnode.dom), 600);
+      }, 250);
+    };
+    window.addEventListener('scroll', this.measure, { passive: true });
+    window.addEventListener('resize', this.measure);
+    this.measure();
+  }
+
+  onremove(vnode) {
+    super.onremove(vnode);
+    window.removeEventListener('scroll', this.measure);
+    window.removeEventListener('resize', this.measure);
+  }
+
+  /**
+   * Keep clear of whatever else a theme fixes to the bottom-right corner —
+   * Bespoke's back-to-top button, most often. The pill and the heads sit in
+   * that corner too, and drawn over each other neither can be clicked.
+   *
+   * Found by looking at what is under the corner, not by naming one theme's
+   * button, so any theme's works. Full-width bars (the composer, a cookie
+   * banner) are not something to step over and are ignored.
+   */
+  clearCorner(root) {
+    const probes = [
+      [window.innerWidth - 34, window.innerHeight - 34],
+      [window.innerWidth - 60, window.innerHeight - 30],
+    ];
+    let lift = 0;
+
+    for (const [x, y] of probes) {
+      for (const el of document.elementsFromPoint(x, y)) {
+        if (root.contains(el) || el === document.body || el === document.documentElement) continue;
+        const style = getComputedStyle(el);
+        // A hidden button is usually faded out, and opacity is animated, so
+        // mid-fade it reads as half there. `pointer-events: none` is how
+        // themes switch it off, and that changes at once.
+        if (style.position !== 'fixed' || style.visibility === 'hidden' || style.pointerEvents === 'none') continue;
+        const r = el.getBoundingClientRect();
+        if (r.width === 0 || r.height === 0 || r.width > window.innerWidth / 2) continue;
+        lift = Math.max(lift, window.innerHeight - r.top - 14 + 10);
+      }
+    }
+
+    root.style.setProperty('--pl-lift', Math.max(0, Math.round(lift)) + 'px');
   }
 
   onupdate(vnode) {
