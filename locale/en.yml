@@ -1,0 +1,144 @@
+ernestdefoe-parley:
+
+  forum:
+    activity:
+      reading: Reading
+      replying: Writing a reply
+      browsing: Browsing
+      all_discussions: All discussions
+      away: Away
+      idle: "idle {minutes}m"
+      busy: Busy
+      dnd: Do not disturb
+      calls_muted: calls are muted
+      online: Online
+      active_now: Active now
+      offline: Offline
+      last_seen: "Last seen {ago}"
+
+    rail:
+      label: People online
+      search: Search people online
+      hide: Hide the people list
+      show: Show the people list
+      following: Following
+      following_empty: People you follow show up here. Use Follow on anyone's profile.
+      online_now: Online now
+      nobody_online: Nobody else is online right now.
+      nobody_matches: Nobody online matches.
+      other_members: Other members
+      and_more: "and {count} more"
+      guests_reading: "{count, plural, one {# guest} other {# guests}} reading"
+      you_appear_offline: You appear offline
+      visible_as: "Visible as {status}"
+      counts: "{members, plural, one {# member} other {# members}} · {guests, plural, one {# guest} other {# guests}}"
+      message: Message
+      message_person: "Message {name}"
+      go_to: "Go to {place}"
+      peek: "{count} online"
+      peek_unread: "{count} unread"
+
+    status:
+      online: Online
+      online_desc: Visible to everyone
+      away: Away
+      away_desc: Set automatically after you are idle
+      busy: Busy
+      busy_desc: Mutes sounds and pop-ups
+      busy_desc_calls: Mutes call rings and sounds
+      invisible: Appear offline
+      invisible_desc: You can still see everyone
+
+    window:
+      label: "Conversation with {name}"
+      message_to: "Message {name}"
+      open_with: "Open conversation with {name}"
+      minimise: Minimise
+      close: Close
+      send: Send
+      add_photo: Add a photo
+      say_hello: "Say hello to {name}."
+      typing: "{name} is typing"
+      seen: Seen
+      today: Today
+      yesterday: Yesterday
+      edited: (edited)
+      deleted: Message deleted
+      photo: Photo
+      react: React
+      reply: Reply
+      more: More
+      copy: Copy
+      edit: Edit
+      editing: Editing your message
+      replying_to: "Replying to “{text}”"
+      delete: Delete
+      delete_for_everyone: Delete for everyone
+      report: Report
+      report_prompt: Report this message to the moderators? They will see it and the five messages before it, and nothing else from this conversation.
+      report_reason: What is wrong with it? (optional)
+      report_send: Report
+      reported: Reported. The moderators will take a look.
+      cancel: Cancel
+      too_big: "That picture is larger than {max} MB."
+      call_voice: Voice call
+      call_video: Video call
+      call_missed: Missed call
+      call_voice_unanswered: Voice call · not answered
+      call_video_unanswered: Video call · not answered
+
+    inbox:
+      title: Messages
+      messages: Messages
+      reports: Reports
+      empty: No conversations yet. Click anyone in the online list to start one.
+      pick: Pick a conversation on the left.
+      no_access: Messages are not available on your account.
+      you: You
+      no_reports: Nothing has been reported.
+      reported_by: "{reporter} reported {reported}"
+      resolve: Mark as handled
+
+    notifications:
+      message: "{username} sent you a message"
+      report: "A message from {username} was reported"
+
+    controls:
+      message: Message
+      follow: Follow
+      unfollow: Unfollow
+      block: Block
+      blocked: "{name} is blocked. Neither of you can message the other or see each other online."
+
+    settings:
+      who_can_message: Who can message me
+      who_can_message_help: Moderators can always message you.
+      everyone: Everyone
+      following: People I follow
+      nobody: Nobody
+
+  api:
+    empty_message: Type a message first.
+    too_long: "A message can be at most {max} characters."
+    upload_failed: The picture did not upload. Try again.
+    image_too_big: "That picture is larger than {max} MB."
+    not_an_image: That file is not a picture Parley can show. Use a JPEG, PNG, GIF or WebP.
+    refusal:
+      self: You cannot message yourself.
+      no_permission: You do not have permission to send messages.
+      unconfirmed: Confirm your email address before sending messages.
+      unavailable: "{name} cannot receive messages."
+      blocked: "You cannot message {name}."
+      closed: "{name} is not accepting messages."
+      following_only: "{name} only accepts messages from people they follow."
+
+  admin:
+    permissions:
+      use: Use Parley chat
+      hide_from_list: Hidden from the Parley online list
+      moderate: Review reported Parley messages
+    settings:
+      away_minutes: Minutes before Away
+      away_minutes_help: Someone who has not touched the page for this long shows as Away.
+      max_image_mb: Largest picture (MB)
+      max_image_mb_help: Pictures sent in a conversation can be at most this size.
