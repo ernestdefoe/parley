@@ -972,6 +972,21 @@
   svg { width: ~"calc(var(--s) * .62)"; height: ~"calc(var(--s) * .62)"; }
 }
 
+/* An uploaded logo: always a white badge, in dark mode too. Conference logos
+   are drawn for white, and the navy and black ones disappear on dark. */
+.Parley .pl-room-tile.image {
+  background: #ffffff;
+  border: 1px solid var(--pl-line);
+  overflow: hidden;
+
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+  }
+}
+
 /* ── Rooms ─────────────────────────────────────────────────────────────── */
 
 .Parley .pl-room-tile {

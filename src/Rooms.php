@@ -138,6 +138,7 @@ class Rooms
             'slug' => $room->slug,
             'description' => $room->description,
             'emoji' => $room->emoji,
+            'imageUrl' => ! empty($room->image_path) ? resolve(RoomImages::class)->url($room->image_path) : null,
             'tagId' => $room->tag_id ? (int) $room->tag_id : null,
             // The tag's own icon and colour, so a room with no emoji wears its
             // tag's badge — a conference room shows the conference logo.
@@ -251,6 +252,7 @@ class Rooms
 
     public function destroy(object $room): void
     {
+        resolve(RoomImages::class)->remove($room);
         $this->db->table('parley_conversations')->where('id', $room->id)->where('type', 'room')->delete();
     }
 

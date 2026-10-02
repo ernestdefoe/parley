@@ -2,7 +2,9 @@ import Icon from 'flarum/common/components/Icon';
 import { readableOn } from '../util';
 
 /**
- * A room's face. Its emoji if it has one; otherwise its tag's own icon on the
+ * A room's face. Its own logo if one was uploaded — on a white badge in both
+ * themes, because a logo is drawn for white and several vanish on dark. Then
+ * its emoji; otherwise its tag's own icon on the
  * tag's colour — a conference room wears the conference logo; otherwise a #.
  *
  * The icon goes through Flarum's Icon component, exactly as the tag pages draw
@@ -13,7 +15,10 @@ export default function RoomTile(room, size = 36) {
   let face = '#';
   let className = 'pl-room-tile';
 
-  if (room && room.emoji) {
+  if (room && room.imageUrl) {
+    face = <img src={room.imageUrl} alt="" loading="lazy" />;
+    className += ' image';
+  } else if (room && room.emoji) {
     face = room.emoji;
   } else if (room && room.tagIcon) {
     face = <Icon name={room.tagIcon} />;

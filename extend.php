@@ -37,6 +37,8 @@ return [
         ->patch('/parley/admin/rooms/{id:\d+}', 'ernestdefoe-parley.rooms.admin.update', Api\RoomsController::class)
         ->delete('/parley/admin/rooms/{id:\d+}', 'ernestdefoe-parley.rooms.admin.delete', Api\RoomsController::class)
         ->post('/parley/admin/rooms/order', 'ernestdefoe-parley.rooms.admin.order', Api\RoomsController::class)
+        ->post('/parley/admin/rooms/{id:\d+}/image', 'ernestdefoe-parley.rooms.admin.image', Api\RoomsController::class)
+        ->delete('/parley/admin/rooms/{id:\d+}/image', 'ernestdefoe-parley.rooms.admin.image.delete', Api\RoomsController::class)
         ->get('/parley/conversations', 'ernestdefoe-parley.conversations', Api\ConversationsController::class)
         ->post('/parley/conversations', 'ernestdefoe-parley.conversations.open', Api\ConversationsController::class)
         ->get('/parley/conversations/{id:\d+}', 'ernestdefoe-parley.conversation', Api\ShowConversationController::class)

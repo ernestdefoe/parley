@@ -88,6 +88,11 @@ export default class RoomsManager extends Component {
                     <Button className="Button" onclick={() => (this.confirmDelete = null)}>{t('cancel')}</Button>,
                   ] : [
                     <Button className="Button" onclick={() => this.edit(r)}>{t('edit')}</Button>,
+                    <Button className="Button" loading={this.uploading === r.id} onclick={(e) => e.currentTarget.parentNode.querySelector('input[type=file]').click()}>
+                      {r.imageUrl ? t('replace_logo') : t('upload_logo')}
+                    </Button>,
+                    <input type="file" hidden accept="image/png,image/jpeg,image/webp,image/gif" onchange={(e) => this.upload(r, e)} />,
+                    r.imageUrl ? <Button className="Button" onclick={() => this.removeImage(r)}>{t('remove_logo')}</Button> : null,
                     <Button className="Button" onclick={() => this.save(r, { archived: !r.archived })}>{r.archived ? t('restore') : t('archive')}</Button>,
                     <Button className="Button Button--danger" onclick={() => (this.confirmDelete = r.id)}>{t('delete')}</Button>,
                   ]}
@@ -105,6 +110,7 @@ export default class RoomsManager extends Component {
 
   /** The same face members see: emoji, else the tag's logo on its colour, else #. */
   tile(r) {
+    if (r.imageUrl) return <span className="ParleyRooms-tile image"><img src={r.imageUrl} alt="" /></span>;
     if (r.emoji || !r.tagIcon) return <span className="ParleyRooms-tile">{r.emoji || '#'}</span>;
     return (
       <span className="ParleyRooms-tile logo" style={r.tagColor ? { background: r.tagColor, color: readableOn(r.tagColor) } : {}}>
@@ -154,6 +160,30 @@ export default class RoomsManager extends Component {
     req.then(() => {
       this.editing = null;
       this.load();
+    });
+  }
+
+  upload(room, e) {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    const body = new FormData();
+    body.append('image', file);
+    this.uploading = room.id;
+    app.request({ method: 'POST', url: url('/' + room.id + '/image'), body, serialize: (raw) => raw })
+      .then((r) => {
+        this.rooms = r.rooms;
+      })
+      .finally(() => {
+        this.uploading = null;
+        m.redraw();
+      });
+  }
+
+  removeImage(room) {
+    app.request({ method: 'DELETE', url: url('/' + room.id + '/image') }).then((r) => {
+      this.rooms = r.rooms;
+      m.redraw();
     });
   }
 

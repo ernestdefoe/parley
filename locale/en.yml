@@ -141,6 +141,7 @@ ernestdefoe-parley:
     image_too_big: "That picture is larger than {max} MB."
     not_an_image: That file is not a picture Parley can show. Use a JPEG, PNG, GIF or WebP.
     room_name: Give the room a name of up to 80 characters.
+    room_image_type: Use a PNG, JPEG, WebP or GIF image of up to 5 MB.
     refusal:
       room_hidden: That room is not open to you.
       room_archived: That room has been archived.
@@ -156,13 +157,16 @@ ernestdefoe-parley:
   admin:
     rooms:
       title: Rooms
-      help: Drag a room to change its place in the list. A room tied to a tag is seen by exactly the people who can see that tag, and shows that tag's icon unless you give it an emoji.
+      help: Drag a room to change its place in the list. A room tied to a tag is seen by exactly the people who can see that tag. A room shows its uploaded logo, else its emoji, else its tag's icon.
       add: Add a room
       edit: Edit
       archive: Archive
       restore: Restore
       archived: archived
       delete: Delete
+      upload_logo: Upload logo
+      replace_logo: Replace logo
+      remove_logo: Remove logo
       delete_confirm: Delete it and every message in it
       cancel: Cancel
       save: Save
