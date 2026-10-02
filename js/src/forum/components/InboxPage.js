@@ -33,6 +33,8 @@ export default class InboxPage extends Page {
       return;
     }
 
+    app.parley.pageConversation = this.selected;
+
     api.conversations().then((r) => {
       this.list = r.conversations;
       r.conversations.forEach((c) => app.parley.ensure(c));
@@ -47,8 +49,14 @@ export default class InboxPage extends Page {
     const id = Number(m.route.param('id')) || null;
     if (id !== this.selected) {
       this.selected = id;
+      app.parley.pageConversation = id;
       if (id) app.parley.load(id);
     }
+  }
+
+  onremove(vnode) {
+    super.onremove(vnode);
+    if (app.parley) app.parley.pageConversation = null;
   }
 
   view() {

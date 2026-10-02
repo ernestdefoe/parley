@@ -89,7 +89,7 @@ export function placeFromPath(path) {
     return { place: 'discussion', discussionId: Number(m[1]), near: m[2] ? Number(m[2]) : null };
   }
   if ((m = path.match(/^\/t\/([^/?#]+)/))) return { place: 'tag', tagSlug: decodeURIComponent(m[1]) };
-  if (/^\/messages(\/|$)/.test(path)) return { place: 'messages' };
+  if (/^\/parley(\/|$)/.test(path)) return { place: 'messages' };
   if (/^\/u\//.test(path)) return { place: 'user' };
   if (path === '/' || path === '' || /^\/all\b/.test(path)) return { place: 'index' };
   return { place: 'other' };

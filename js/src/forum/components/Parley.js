@@ -4,6 +4,7 @@ import extractText from 'flarum/common/utils/extractText';
 import Rail from './Rail';
 import Heads from './Heads';
 import ChatWindow from './ChatWindow';
+import InboxPage from './InboxPage';
 import { DOCK_BREAKPOINT } from '../state';
 
 const t = (key, params) => app.translator.trans('ernestdefoe-parley.forum.' + key, params);
@@ -34,11 +35,12 @@ export default class Parley extends Component {
     const s = app.parley;
     const docked = s.railDocked();
     const showRail = docked || s.railSheet;
-    const onInbox = app.current && app.current.get && app.current.get('routeName') === 'parley.inbox';
+    // The inbox page draws conversations itself; the dock would repeat them.
+    const onInbox = !!(app.current && app.current.matches && app.current.matches(InboxPage));
     const total = s.totalUnread();
 
     return (
-      <div className={'Parley' + (docked ? ' docked' : '') + (s.railSheet ? ' sheet' : '')}>
+      <div className={'Parley' + (docked ? ' docked' : '') + (s.railSheet ? ' sheet' : '') + (s.open.some((id) => !s.minimised.has(id)) ? ' has-window' : '')}>
         {showRail ? <Rail /> : null}
         {!onInbox ? <Heads /> : null}
         {!onInbox ? (

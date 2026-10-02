@@ -524,7 +524,6 @@
   white-space: pre-wrap;
   position: relative;
 
-  a { text-decoration: underline; text-underline-offset: 2px; }
   &.deleted {
     background: transparent;
     border: 1px solid var(--pl-line);
@@ -743,6 +742,26 @@
   .danger:hover { background: var(--pl-busy); opacity: .9; }
 }
 
+/*
+ * 🚨 Links Parley draws, at a specificity a theme's link colour cannot tie.
+ * Bespoke styles links with `:root:not([data-theme^="dark"]) a` (0,2,1) and
+ * loads after us, so `.Parley .pl-bub a` lost the tie and drew a red link on
+ * the blue bubble. The `.Parley.Parley` doubling lifts every rule here above it.
+ */
+.Parley.Parley {
+  .pl-row .pl-bub a,
+  .pl-row .pl-bub a:hover,
+  .pl-row .pl-bub a:focus,
+  .pl-row .pl-bub a:visited {
+    color: inherit;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  a.pl-ib, a.pl-ib:visited { color: var(--pl-muted); }
+  a.pl-ib:hover { color: var(--pl-fg); }
+  a.pl-inbox-item, a.pl-inbox-item:visited, a.pl-inbox-item:hover { color: var(--pl-fg); }
+}
+
 /* ── Chat heads ────────────────────────────────────────────────────────── */
 
 .Parley .pl-heads {
@@ -817,6 +836,8 @@
 }
 @media (max-width: 819px) {
   .Parley .pl-rail { width: 100%; border-left: 0; }
+  /* A conversation fills the phone; the pill would sit on its composer. */
+  .Parley.has-window .pl-peek, .Parley.has-window .pl-heads { display: none; }
   .Parley .pl-dock { right: 0; left: 0; top: 0; bottom: 0; align-items: stretch; }
   .Parley .pl-dock:empty { display: none; }
   .Parley .pl-win { display: none; width: 100%; height: 100%; border-radius: 0; border: 0; }

@@ -49,7 +49,7 @@ export default class ChatWindow extends Component {
           {this.headerItems(conv, live).toArray()}
         </div>
 
-        <MessageList key={'list-' + id} conv={conv} />
+        <MessageList conv={conv} />
 
         {reporting ? this.reportBar(reporting) : null}
 

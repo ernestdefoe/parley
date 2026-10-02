@@ -12,9 +12,9 @@ export default class Heads extends Component {
 
     return (
       <div className={'pl-heads' + (s.open.length ? ' above' : '')}>
-        {s.heads.map((id) => {
+        {s.heads.filter((id) => s.conv(id)).map((id) => {
+          // Filtered first: a keyed list must not start with a null hole.
           const conv = s.conv(id);
-          if (!conv) return null;
           const peer = conv.summary.participants[0] || { displayName: '?' };
           const live = { ...peer, ...s.presenceOf(peer.id) };
           const unread = s.unread[id] || 0;

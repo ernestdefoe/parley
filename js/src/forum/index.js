@@ -1,6 +1,5 @@
 import app from 'flarum/forum/app';
 import { extend } from 'flarum/common/extend';
-import ForumApplication from 'flarum/forum/ForumApplication';
 import Page from 'flarum/common/components/Page';
 import Button from 'flarum/common/components/Button';
 import UserControls from 'flarum/forum/utils/UserControls';
@@ -20,8 +19,13 @@ export { default as Icons } from './icons';
 const t = (key, params) => app.translator.trans('ernestdefoe-parley.forum.' + key, params);
 
 app.initializers.add('ernestdefoe-parley', () => {
-  app.routes['parley.inbox'] = { path: '/messages', component: InboxPage };
-  app.routes['parley.conversation'] = { path: '/messages/:id', component: InboxPage };
+    /*
+   * 🚨 Not /messages: flarum/messages owns it, and two routes on one path stop
+   * the whole forum booting. Not /chat either, which ramon/chat holds while
+   * both are installed during a switch-over.
+   */
+  app.routes['parley.inbox'] = { path: '/parley', component: InboxPage };
+  app.routes['parley.conversation'] = { path: '/parley/:id', component: InboxPage };
 
   app.notificationComponents.parleyMessage = MessageNotification;
   app.notificationComponents.parleyReport = ReportNotification;
@@ -30,8 +34,12 @@ app.initializers.add('ernestdefoe-parley', () => {
    * 🚨 Started from `mount`, not from the initializer. `app.forum` and the
    * session are filled in while the app boots, AFTER initializers run, and a
    * throw in an initializer is silent — the extension simply never starts.
+   *
+   * Patched on the `app` instance: Flarum 2 does not register
+   * `forum/ForumApplication` as a module, so importing it gives undefined and
+   * `.prototype` of that takes the whole initializer down.
    */
-  extend(ForumApplication.prototype, 'mount', function () {
+  extend(app, 'mount', function () {
     const config = app.forum.attribute('parley') || {};
 
     if (!app.session.user) {

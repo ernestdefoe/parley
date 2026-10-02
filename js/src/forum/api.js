@@ -11,7 +11,9 @@ export default {
   open: (userId) => call('POST', '/conversations', { userId }),
   show: (id, params = {}) => {
     const q = new URLSearchParams(params).toString();
-    return call('GET', `/conversations/${id}` + (q ? `?${q}` : ''), undefined, params.after ? { background: true, errorHandler: () => {} } : {});
+    // A poll is quiet: no loading bar, no error alert if one misses.
+    const quiet = params.after || params.latest;
+    return call('GET', `/conversations/${id}` + (q ? `?${q}` : ''), undefined, quiet ? { background: true, errorHandler: () => {} } : {});
   },
   send: (id, body, replyToId) => call('POST', `/conversations/${id}/messages`, { body, replyToId }),
   upload: (id, file) => {

@@ -16,8 +16,8 @@ return [
     (new Extend\Frontend('forum'))
         ->js(__DIR__.'/js/dist/forum.js')
         ->css(__DIR__.'/less/forum.less')
-        ->route('/messages', 'parley.inbox')
-        ->route('/messages/{id:\d+}', 'parley.conversation'),
+        ->route('/parley', 'parley.inbox')
+        ->route('/parley/{id:\d+}', 'parley.conversation'),
 
     (new Extend\Frontend('admin'))
         ->js(__DIR__.'/js/dist/admin.js'),

@@ -76,7 +76,7 @@ export default class MessageList extends Component {
       const showFace = !mine && (pos === 'last' || pos === 'single');
 
       out.push(
-        <div key={msg.id} className={`pl-row ${who} ${pos === 'single' ? '' : pos} ${pos === 'first' || pos === 'single' ? 'gap' : ''}`} title={clock(msg.createdAt)}>
+        <div className={`pl-row ${who} ${pos === 'single' ? '' : pos} ${pos === 'first' || pos === 'single' ? 'gap' : ''}`} title={clock(msg.createdAt)}>
           {!mine ? (showFace ? Avatar(author, 26) : <span className="pl-sp" />) : null}
           {this.bubble(msg)}
           {msg.deleted ? null : this.tray(msg, mine)}
@@ -238,7 +238,7 @@ export default class MessageList extends Component {
         : [t(video ? 'call_video' : 'call_voice'), length ? ' · ' + length : ''];
 
     return (
-      <div key={msg.id} className="pl-sys">
+      <div className="pl-sys">
         {video ? Icons.video() : Icons.phone()}
         <span>{text}</span>
         <span className="pl-mono">{clock(msg.createdAt)}</span>

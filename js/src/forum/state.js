@@ -44,6 +44,8 @@ export default class ParleyState {
     this.replyTo = {};
     this.editing = {};
     this.reporting = null;
+    /** The conversation the inbox page is showing, if it is open. */
+    this.pageConversation = null;
 
     this.filter = '';
     this.found = [];
@@ -288,7 +290,11 @@ export default class ParleyState {
   }
 
   isVisible(id) {
-    return this.open.includes(Number(id)) && !this.minimised.has(Number(id)) && document.visibilityState === 'visible';
+    id = Number(id);
+    if (document.visibilityState !== 'visible') return false;
+    // Open in the inbox page counts as being read, the same as a docked window.
+    if (this.pageConversation === id) return true;
+    return this.open.includes(id) && !this.minimised.has(id);
   }
 
   older(id) {
@@ -409,17 +415,27 @@ export default class ParleyState {
     this.heads = this.heads.slice(0, MAX_HEADS);
   }
 
-  /** Without realtime: fetch what is new in the open conversations. */
+  /**
+   * Without realtime: refresh the open conversations.
+   *
+   * The latest page, not just what is newer than the last id. "Newer than"
+   * finds new messages but never sees a reaction, an edit or a read receipt
+   * on one already drawn, so without realtime those would never arrive.
+   */
   pollOpen() {
     if (this.realtime || document.visibilityState !== 'visible') return;
     this.open.forEach((id) => {
       const c = this.conv(id);
-      if (!c) return;
-      const last = c.messages.length ? c.messages[c.messages.length - 1].id : 0;
-      api.show(id, { after: last }).then((r) => {
+      if (!c || this.minimised.has(id)) return;
+      api.show(id, { latest: 1 }).then((r) => {
         if (!r) return;
-        c.summary = r.conversation;
-        r.messages.forEach((msg) => this.received(msg));
+        c.summary = { ...r.conversation, lastReadMessageId: Math.max(r.conversation.lastReadMessageId || 0, c.summary.lastReadMessageId || 0) };
+        r.messages.forEach((msg) => {
+          const i = c.messages.findIndex((x) => x.id === msg.id);
+          if (i >= 0) c.messages[i] = msg;
+          else this.received(msg);
+        });
+        m.redraw();
       });
     });
   }

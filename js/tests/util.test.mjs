@@ -52,7 +52,7 @@ test('the place is read from the path', () => {
   assert.deepEqual(placeFromPath('/d/42'), { place: 'discussion', discussionId: 42, near: null });
   assert.deepEqual(placeFromPath('/t/sec'), { place: 'tag', tagSlug: 'sec' });
   assert.deepEqual(placeFromPath('/'), { place: 'index' });
-  assert.deepEqual(placeFromPath('/messages/3'), { place: 'messages' });
+  assert.deepEqual(placeFromPath('/parley/3'), { place: 'messages' });
 });
 
 test('windows that fit beside the rail', () => {
