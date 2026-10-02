@@ -70,7 +70,13 @@ export default class ParleyState {
     this.bindRealtime();
     this.watchIdle();
     this.beat();
-    this.timer = setInterval(() => this.beat(), this.realtime ? HEARTBEAT : HEARTBEAT_NO_REALTIME);
+    // The heartbeat also carries unread counts, so it runs faster whenever
+    // there is no live socket to deliver messages.
+    const tick = () => {
+      this.beat();
+      this.timer = setTimeout(tick, this.socketUp() ? HEARTBEAT : HEARTBEAT_NO_REALTIME);
+    };
+    this.timer = setTimeout(tick, HEARTBEAT_NO_REALTIME);
     this.poller = setInterval(() => this.pollOpen(), POLL_OPEN);
     this.typingSweep = setInterval(() => this.sweepTyping(), 1000);
 
@@ -183,6 +189,18 @@ export default class ParleyState {
       channel.bind('parley.typing', (d) => this.typingFrom(d));
       this.listeners.forEach((fn) => fn(channel));
     });
+  }
+
+  /**
+   * Is the socket actually up? Realtime being installed is not enough: a
+   * misconfigured or unreachable daemon leaves the browser "connecting" for
+   * ever, and trusting it then means nothing arrives at all. Polling covers
+   * every moment the socket is not connected.
+   */
+  socketUp() {
+    if (!this.realtime) return false;
+    const state = app.websocket && app.websocket.connection && app.websocket.connection.state;
+    return state === 'connected';
   }
 
   /** For Parley Calls: bind more events on the same channel. */
@@ -423,7 +441,7 @@ export default class ParleyState {
    * on one already drawn, so without realtime those would never arrive.
    */
   pollOpen() {
-    if (this.realtime || document.visibilityState !== 'visible') return;
+    if (this.socketUp() || document.visibilityState !== 'visible') return;
     this.open.forEach((id) => {
       const c = this.conv(id);
       if (!c || this.minimised.has(id)) return;
@@ -472,7 +490,7 @@ export default class ParleyState {
     const now = Date.now();
     if (now - (this.lastTypingSent[id] || 0) < TYPING_SEND_EVERY) return;
     this.lastTypingSent[id] = now;
-    if (this.realtime) api.action(id, 'typing');
+    if (this.socketUp()) api.action(id, 'typing');
   }
 
   markRead(id) {
