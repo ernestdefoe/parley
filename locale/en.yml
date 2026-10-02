@@ -86,6 +86,8 @@ ernestdefoe-parley:
       call_missed: Missed call
       call_voice_unanswered: Voice call · not answered
       call_video_unanswered: Video call · not answered
+      call_voice_declined: Voice call · declined
+      call_video_declined: Video call · declined
 
     inbox:
       title: Messages

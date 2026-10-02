@@ -224,21 +224,30 @@ export default class MessageList extends Component {
     );
   }
 
-  /** "Video call · 4:12", "Missed call" — written by Parley Calls, drawn here
-   *  so the history still reads if Calls is ever removed. */
+  /**
+   * "Video call · 4:12", "Missed call" — written by Parley Calls, drawn here
+   * so the history still reads if Calls is ever removed.
+   *
+   * One row serves both people, so it reads from where you sit: a call that
+   * was not picked up is "not answered" to the caller and "Missed call" to the
+   * person who was called.
+   */
   callRow(msg) {
     const meta = msg.meta || {};
     const video = meta.kind === 'video';
     const d = meta.durationSeconds;
     const length = d ? `${Math.floor(d / 60)}:${String(d % 60).padStart(2, '0')}` : null;
-    const text = meta.outcome === 'missed'
-      ? t('call_missed')
-      : meta.outcome === 'unanswered'
-        ? t(video ? 'call_video_unanswered' : 'call_voice_unanswered')
-        : [t(video ? 'call_video' : 'call_voice'), length ? ' · ' + length : ''];
+    const iCalled = (meta.callerId || msg.userId) === Number(app.session.user.id());
+    const answered = meta.outcome === 'completed';
+
+    const text = answered
+      ? [t(video ? 'call_video' : 'call_voice'), length ? ' · ' + length : '']
+      : iCalled
+        ? t(meta.outcome === 'declined' ? (video ? 'call_video_declined' : 'call_voice_declined') : video ? 'call_video_unanswered' : 'call_voice_unanswered')
+        : t('call_missed');
 
     return (
-      <div className="pl-sys">
+      <div className={'pl-sys' + (!answered && !iCalled ? ' missed' : '')}>
         {video ? Icons.video() : Icons.phone()}
         <span>{text}</span>
         <span className="pl-mono">{clock(msg.createdAt)}</span>

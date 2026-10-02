@@ -144,6 +144,20 @@ class PresenceStore
         );
     }
 
+    /**
+     * Someone's status right now: online | away | busy | invisible, or null
+     * when they are not on the site. Parley Calls asks before ringing.
+     */
+    public function statusOf(int $userId): ?string
+    {
+        $status = $this->db->table('parley_presence')
+            ->where('user_id', $userId)
+            ->where('last_seen_at', '>=', $this->cutoff())
+            ->value('status');
+
+        return $status === null ? null : (string) $status;
+    }
+
     public function visitorKey(?User $actor, string $sessionId): string
     {
         if ($actor && ! $actor->isGuest()) {
