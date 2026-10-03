@@ -10,7 +10,7 @@ Chat for Flarum 2. See who is online and what they are reading, message anyone i
 - **A full inbox** at `/parley`, with every conversation and room.
 - **Safe by default.** Block anyone, choose who can message you, report a message to the moderators. Staff never read private conversations.
 
-**Voice and video calls**, and voice chat in rooms, are a separate add-on: **Parley Calls** (`ernestdefoe/parley-calls`). Its own README covers setting up audio and video.
+**Voice and video calls**, and voice chat in rooms, are a separate paid add-on: **[Parley Calls](https://ernestdefoe.online/extensions/parley-calls)** (`ernestdefoe/parley-calls`), from $4 a month. Parley itself is free and MIT licensed.
 
 ---
 
@@ -71,9 +71,71 @@ With **flarum/realtime** installed and its websocket server running, everything 
 
 Parley also watches the websocket itself. If realtime is installed but its connection is down, because the server stopped or is misconfigured, Parley falls back to the slower checks above until it reconnects. Nothing is lost while it is down.
 
-Setting realtime up (the websocket server, the `config.php` block, passing `/app/` through your web server, and checking it in the browser) is covered step by step in Parley Calls' README, section 3. The same setup serves both.
+Setting it up takes four steps. Parley Calls uses the same setup, so it is done once for both.
 
-To check it on your forum: sign in, open the browser console and run `app.websocket.connection.state`. It should say `connected`.
+### Run the websocket server
+
+flarum/realtime ships a long-running server. Keep it running under a process manager, for example **supervisor**:
+
+```ini
+[program:flarum-realtime]
+command=php /var/www/html/flarum realtime:serve
+user=www-data
+autostart=true
+autorestart=true
+stdout_logfile=/var/log/flarum-realtime.log
+redirect_stderr=true
+```
+
+### Point browsers and PHP at it
+
+In `config.php`, the `websocket` block says where it listens and how each side reaches it. Browsers connect over HTTPS on port 443; PHP talks to it directly on the same machine:
+
+```php
+'websocket' => [
+    'server-host' => '0.0.0.0',
+    'server-port' => 6001,
+
+    // What browsers connect to: your forum's own hostname, on 443, secure.
+    'js-client-host' => 'forum.example.com',
+    'js-client-port' => 443,
+    'js-client-secure' => true,
+
+    // What PHP connects to: the server itself, plain.
+    'php-client-host' => '127.0.0.1',
+    'php-client-port' => 6001,
+    'php-client-secure' => false,
+],
+```
+
+> ⚠️ `js-client-host` is a **hostname only**: no port, no `https://`. `forum.example.com:8080` there makes browsers try to connect to the wrong address and sit on "connecting" for ever, with no error.
+
+### Pass `/app/` through to it
+
+Browsers open `wss://forum.example.com/app/<key>`. Your web server must hand that path to the websocket server, upgrade headers included. For nginx:
+
+```nginx
+location /app/ {
+    proxy_pass http://127.0.0.1:6001;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "Upgrade";
+    proxy_set_header Host $host;
+    proxy_read_timeout 3600s;
+}
+```
+
+If the forum sits behind Cloudflare, websockets pass through on 443; nothing else is needed.
+
+### Check it
+
+Sign in, open the browser's console and run:
+
+```js
+app.websocket.connection.state
+```
+
+It should say **`connected`**. If it says `connecting` and never changes, go back to 3b and 3c.
 
 ## 4. Settings
 
