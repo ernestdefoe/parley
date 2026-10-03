@@ -707,13 +707,15 @@
 
 .Parley .pl-composer {
   display: flex;
-  align-items: center;
+  // Buttons stay on the last line as a long message grows upwards.
+  align-items: flex-end;
   gap: 2px;
   padding: 8px;
   padding-bottom: ~"calc(8px + env(safe-area-inset-bottom, 0px))";
 
   .pl-ib { color: var(--pl-accent); width: 30px; height: 30px; }
-  input:not([type="file"]) {
+  input:not([type="file"]),
+  textarea {
     flex: 1;
     min-width: 0;
     background: var(--pl-surface-2);
@@ -728,6 +730,16 @@
 
     &::placeholder { color: var(--pl-faint); }
     &:focus { border-color: var(--pl-line); outline: none; }
+  }
+
+  textarea {
+    display: block;
+    resize: none;
+    // A pill on one line; a rounded box once it holds several.
+    border-radius: 18px;
+    max-height: 120px;
+    overflow-y: auto;
+    font-family: inherit;
   }
 }
 .Parley .pl-replying {

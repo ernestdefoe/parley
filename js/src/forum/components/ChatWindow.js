@@ -15,6 +15,14 @@ const t = (key, params) => app.translator.trans('ernestdefoe-parley.forum.window
  * A docked conversation: header, messages, composer. The same component fills
  * the screen on a phone and the right-hand pane of the inbox page.
  */
+
+/** Size the message box to its text, up to its CSS max-height, then scroll. */
+function grow(el) {
+  if (!el) return;
+  el.style.height = 'auto';
+  el.style.height = el.scrollHeight + 'px';
+}
+
 export default class ChatWindow extends Component {
   oninit(vnode) {
     super.oninit(vnode);
@@ -81,12 +89,21 @@ export default class ChatWindow extends Component {
             {Icons.img()}
           </button>
           <input type="file" accept="image/jpeg,image/png,image/gif,image/webp" hidden onchange={(e) => this.upload(e, id)} />
-          <input
+          {/*
+            A textarea, so a message can hold line breaks: Enter sends, as it
+            always has, and Shift+Enter starts a new line. It grows with what
+            is typed, up to a few lines, then scrolls.
+          */}
+          <textarea
             id={`Parley-input-${id}`}
+            rows="1"
             placeholder="Aa"
             autocomplete="off"
             aria-label={extractText(t('message_to', { name: title }))}
-            oncreate={(v) => editing && (v.dom.value = editing.body)}
+            oncreate={(v) => {
+              if (editing) v.dom.value = editing.body;
+              grow(v.dom);
+            }}
             onupdate={(v) => {
               if (editing && v.dom.dataset.editing !== String(editing.id)) {
                 v.dom.value = editing.body;
@@ -95,12 +112,25 @@ export default class ChatWindow extends Component {
                 v.dom.value = '';
                 delete v.dom.dataset.editing;
               }
+              grow(v.dom);
             }}
-            oninput={() => s.typing(id)}
+            oninput={(e) => {
+              grow(e.target);
+              s.typing(id);
+            }}
             onkeydown={(e) => {
               if (e.key === 'Escape') {
                 delete s.replyTo[id];
                 delete s.editing[id];
+                return;
+              }
+
+              // 🚨 isComposing: with a Chinese, Japanese or Korean input method,
+              // Enter CONFIRMS the character being composed. Sending on it would
+              // post half-typed words.
+              if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229) {
+                e.preventDefault();
+                e.target.form?.requestSubmit();
               }
             }}
             onfocus={() => s.markRead(id)}
@@ -165,13 +195,16 @@ export default class ChatWindow extends Component {
     if (editing) {
       delete s.editing[id];
       input.value = '';
+      grow(input);
       s.edit(editing.id, body).then(done, done);
       return;
     }
 
     input.value = '';
+    grow(input);
     s.send(id, body).then(done, (err) => {
       input.value = body;
+      grow(input);
       done();
       throw err;
     });
