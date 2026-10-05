@@ -97,7 +97,7 @@ class Conversations
         // A room is open to everyone who can see it; a direct conversation
         // only to the people in it.
         $allowed = $this->rooms->isRoom($conversation)
-            ? $this->rooms->canView($conversation, $actor)
+            ? $this->rooms->canChat($conversation, $actor)
             : $this->isParticipant($id, $actor->id);
 
         if (! $allowed) {
@@ -441,7 +441,7 @@ class Conversations
         // Rooms are public, so moderators keep them tidy. Direct conversations
         // stay private: there, only the author can remove a message.
         $moderating = $conversation && $this->rooms->isRoom($conversation)
-            && $this->rooms->canView($conversation, $actor)
+            && $this->rooms->canChat($conversation, $actor)
             && $actor->hasPermission(Gate::MODERATE)
             && ! $message->deleted_at;
 
@@ -561,7 +561,7 @@ class Conversations
         }
 
         return $this->rooms->isRoom($conversation)
-            ? $this->rooms->canView($conversation, $actor)
+            ? $this->rooms->canChat($conversation, $actor)
             : $this->isParticipant($conversationId, $actor->id);
     }
 
@@ -600,6 +600,10 @@ class Conversations
         }
 
         if ($this->rooms->isRoom($conversation)) {
+            // An owned room is voice only: there is no chat to post to.
+            if ($this->rooms->isOwned($conversation)) {
+                throw new ModelNotFoundException();
+            }
             if ($reason = $this->rooms->postRefusal($conversation, $actor)) {
                 $this->refuse($reason, null);
             }

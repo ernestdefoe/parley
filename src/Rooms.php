@@ -27,6 +27,19 @@ class Rooms
      */
     public static array $cardExtenders = [];
 
+    /**
+     * Rooms another extension owns, by the `owner` it created them with:
+     * fn (object $room, User $actor): bool decides who may see one.
+     *
+     * 🚨 An owned room is voice only. It never appears in a list, it carries
+     * no text chat, and it is invisible to everyone when its owner is not
+     * here to answer, so disabling the owner closes it rather than opening it.
+     * Parley Calls' voice chat reaches it through canView() like any room.
+     *
+     * @var array<string, callable>
+     */
+    public static array $owners = [];
+
     /** @var array<int, array<int, true>> viewer id => visible tag ids */
     private array $visibleTags = [];
 
@@ -46,10 +59,21 @@ class Rooms
         return ($conversation->type ?? 'direct') === 'room';
     }
 
+    public function isOwned(object $room): bool
+    {
+        return ! empty($room->owner);
+    }
+
     public function canView(object $room, User $actor): bool
     {
         if (! $this->isRoom($room) || ! $this->gate->canUse($actor)) {
             return false;
+        }
+
+        if ($this->isOwned($room)) {
+            $owner = self::$owners[$room->owner] ?? null;
+
+            return $owner !== null && (bool) $owner($room, $actor);
         }
 
         if ($room->archived_at && ! $actor->isAdmin()) {
@@ -57,6 +81,12 @@ class Rooms
         }
 
         return $room->tag_id === null || isset($this->tagsVisibleTo($actor)[(int) $room->tag_id]);
+    }
+
+    /** Whether $actor may read and write this room's text chat. Owned rooms have none. */
+    public function canChat(object $room, User $actor): bool
+    {
+        return ! $this->isOwned($room) && $this->canView($room, $actor);
     }
 
     /** Why $actor may not post here, or null if they may. */
@@ -96,7 +126,7 @@ class Rooms
     public function listFor(User $viewer, array $unread, ?int $parentId = null): array
     {
         $all = array_values(array_filter(
-            $this->db->table('parley_conversations')->where('type', 'room')->whereNull('archived_at')
+            $this->db->table('parley_conversations')->where('type', 'room')->whereNull('archived_at')->whereNull('owner')
                 ->orderBy('position')->orderBy('id')->get()->all(),
             fn ($room) => $this->canView($room, $viewer)
         ));
@@ -208,7 +238,7 @@ class Rooms
 
     public function join(object $room, User $actor): void
     {
-        if (! $this->canView($room, $actor)) {
+        if (! $this->canChat($room, $actor)) {
             return;
         }
 
@@ -323,7 +353,7 @@ class Rooms
     /** @return list<array<string, mixed>> every room, archived too, for the admin page */
     public function all(): array
     {
-        $rooms = $this->db->table('parley_conversations')->where('type', 'room')
+        $rooms = $this->db->table('parley_conversations')->where('type', 'room')->whereNull('owner')
             ->orderBy('position')->orderBy('id')->get();
 
         // One grouped count: FBSFB alone has 147 rooms.

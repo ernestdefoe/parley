@@ -257,6 +257,7 @@ Parley leaves room for other extensions to build on it; Parley Calls is built en
 - `PersonRow.prototype.actionItems()` and `ChatWindow.prototype.headerItems()`: buttons in the online list and window headers.
 - `ChatWindow.prototype.bodyTopItems()`: a strip between a window's header and its messages.
 - `Ernestdefoe\Parley\Rooms::$cardExtenders`: add fields to every room card, given the whole list at once.
+- `Ernestdefoe\Parley\Rooms::$owners`: voice-only rooms your extension creates (set `owner` on the row) and decides access to with `fn ($room, User $actor): bool`. They never appear in a list and have no text chat. With your extension disabled, nobody can see them.
 - `Ernestdefoe\Parley\Conversations::send()`: the single path every message takes, for writing your own message types.
 - `app.parley`: the client state, including `onChannel()` for binding more realtime events.
 

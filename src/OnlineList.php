@@ -199,7 +199,8 @@ class OnlineList
 
         $out = [];
         foreach ($this->rooms->findMany(array_keys($ids)) as $room) {
-            if ($this->rooms->canView($room, $viewer)) {
+            // An owned room has no window to open, so it is never named.
+            if ($this->rooms->canChat($room, $viewer)) {
                 $out[(int) $room->id] = (string) $room->name;
             }
         }

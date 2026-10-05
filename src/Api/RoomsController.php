@@ -61,7 +61,8 @@ class RoomsController extends Controller
     private function room(ServerRequestInterface $request): object
     {
         $room = $this->rooms->find($this->routeId($request));
-        if (! $room) {
+        // A room another extension owns is not Parley's to show or change.
+        if (! $room || $this->rooms->isOwned($room)) {
             throw new ModelNotFoundException();
         }
 
