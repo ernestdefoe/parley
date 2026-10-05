@@ -5,6 +5,7 @@ import { placeFromPath, windowsThatFit } from './util';
 const HEARTBEAT = 30000;
 const HEARTBEAT_NO_REALTIME = 15000;
 const POLL_OPEN = 5000;
+const PRESENCE_MIN_GAP = 10000;
 const TYPING_TTL = 6000;
 const TYPING_SEND_EVERY = 3000;
 const MAX_HEADS = 6;
@@ -96,6 +97,12 @@ export default class ParleyState {
 
     window.addEventListener('resize', () => this.fit());
     window.addEventListener('pagehide', () => api.leave());
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && this.presenceStale) {
+        this.presenceStale = false;
+        this.presenceChanged();
+      }
+    });
 
     /*
      * 🚨 Moving is noticed by watching, not by Flarum's page hooks. Patching
@@ -180,6 +187,7 @@ export default class ParleyState {
   }
 
   beat() {
+    this.lastBeatAt = Date.now();
     return api
       .heartbeat({ status: this.status, ...this.where() })
       .then((r) => {
@@ -288,11 +296,23 @@ export default class ParleyState {
    * pages should not all ask in the same instant.
    */
   presenceChanged() {
+    // 🚨 A tab nobody is looking at does not ask: its own 30-second heartbeat
+    // keeps it on the list, and it catches up once when it is shown again.
+    // Every open tab of every member hears every signal, so without this one
+    // arrival made the whole forum's background tabs heartbeat at once.
+    if (document.visibilityState !== 'visible') {
+      this.presenceStale = true;
+      return;
+    }
     if (this.presenceTimer) return;
+    // And never more often than once per PRESENCE_MIN_GAP: on a busy forum
+    // the signal fires every few seconds, and each one costs a full
+    // heartbeat from every visible page.
+    const wait = Math.max(0, (this.lastBeatAt || 0) + PRESENCE_MIN_GAP - Date.now());
     this.presenceTimer = setTimeout(() => {
       this.presenceTimer = null;
       this.beat();
-    }, 300 + Math.random() * 2000);
+    }, wait + 300 + Math.random() * 2000);
   }
 
   /** For Parley Calls: bind more events on the same channel. */
