@@ -261,6 +261,11 @@ Parley leaves room for other extensions to build on it; Parley Calls is built en
 - `Ernestdefoe\Parley\Conversations::send()`: the single path every message takes, for writing your own message types.
 - `app.parley`: the client state, including `onChannel()` for binding more realtime events.
 
+## Support
+
+- **Support forum:** [Parley on ernestdefoe.online](https://ernestdefoe.online/d/119)
+- **Bug reports:** [GitHub issues](https://github.com/ernestdefoe/parley/issues)
+
 ## Licence
 
 MIT. See [LICENSE](LICENSE).
