@@ -290,7 +290,7 @@ class Rooms
             throw new ValidationException(['name' => $this->translator->trans('ernestdefoe-parley.api.room_name')]);
         }
 
-        $tagId = isset($data['tagId']) && $data['tagId'] !== '' && $data['tagId'] !== null ? (int) $data['tagId'] : null;
+        $tagId = isset($data['tagId']) && $data['tagId'] !== '' ? (int) $data['tagId'] : null;
         if (array_key_exists('tagId', $data) === false && $room) {
             $tagId = $room->tag_id;
         }

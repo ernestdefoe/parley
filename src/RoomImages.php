@@ -5,7 +5,7 @@ namespace Ernestdefoe\Parley;
 use Flarum\Foundation\ValidationException;
 use Flarum\Locale\TranslatorInterface;
 use Illuminate\Contracts\Filesystem\Factory;
-use Illuminate\Contracts\Filesystem\Filesystem;
+use Illuminate\Contracts\Filesystem\Cloud;
 use Illuminate\Database\ConnectionInterface;
 
 /**
@@ -75,7 +75,8 @@ class RoomImages
         // is left alone.
         if ($variant === 'light' && ! $this->hasOwnDark($room)) {
             $this->forget($room, 'image_dark_path');
-            if ($this->needsOutline($img, false) && ($dark = $this->outline($img))) {
+            if ($this->needsOutline($img, false)) {
+                $dark = $this->outline($img);
                 $darkPng = $this->png($dark);
                 $darkPath = 'parley/rooms/'.$room->id.'-dark-auto-'.substr(sha1($darkPng), 0, 12).'.png';
                 $this->disk()->put($darkPath, $darkPng);
@@ -291,7 +292,7 @@ class RoomImages
         return [$minX, $minY, min($w - $minX, $maxX - $minX + $step), min($h - $minY, $maxY - $minY + $step)];
     }
 
-    private function disk(): Filesystem
+    private function disk(): Cloud
     {
         return $this->filesystems->disk('flarum-assets');
     }

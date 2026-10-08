@@ -3,6 +3,7 @@
 namespace Ernestdefoe\Parley\Api;
 
 use Ernestdefoe\Parley\Relations;
+use Flarum\Http\Exception\RouteNotFoundException;
 use Flarum\User\User;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Arr;
@@ -30,6 +31,8 @@ class PersonActionController extends Controller
         match (Arr::get($request->getQueryParams(), 'action')) {
             'follow' => $this->relations->setFollow($actor->id, $other->id, $on),
             'block' => $this->relations->setBlock($actor->id, $other->id, $on),
+            // The route only matches the actions above.
+            default => throw new RouteNotFoundException(),
         };
 
         return [

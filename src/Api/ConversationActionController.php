@@ -3,6 +3,7 @@
 namespace Ernestdefoe\Parley\Api;
 
 use Ernestdefoe\Parley\Conversations;
+use Flarum\Http\Exception\RouteNotFoundException;
 use Flarum\User\User;
 use Illuminate\Support\Arr;
 use Psr\Http\Message\ServerRequestInterface;
@@ -25,6 +26,8 @@ class ConversationActionController extends Controller
             'typing' => $this->conversations->typing($conversation, $actor),
             'hide' => $this->conversations->hide($conversation, $actor),
             'mute' => $this->conversations->setMuted($conversation, $actor, (bool) $this->input($request, 'on', true)),
+            // The route only matches the actions above.
+            default => throw new RouteNotFoundException(),
         };
 
         return ['ok' => true];

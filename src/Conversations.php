@@ -75,7 +75,7 @@ class Conversations
                 ]);
             }
 
-            $conversation = $this->db->table('parley_conversations')->find($id);
+            $conversation = $this->db->table('parley_conversations')->where('id', $id)->first();
         }
 
         // Opening a closed conversation brings it back into your list.
@@ -698,7 +698,7 @@ class Conversations
     private function refuse(string $reason, ?User $other): void
     {
         throw new ValidationException(['user' => $this->translator->trans('ernestdefoe-parley.api.refusal.'.$reason, [
-            'name' => $other?->display_name ?? '',
+            'name' => $other->display_name ?? '',
         ])]);
     }
 }

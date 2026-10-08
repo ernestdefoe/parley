@@ -4,6 +4,7 @@ namespace Ernestdefoe\Parley\Api;
 
 use Ernestdefoe\Parley\Conversations;
 use Ernestdefoe\Parley\Rooms;
+use Flarum\Http\Exception\RouteNotFoundException;
 use Flarum\User\User;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Psr\Http\Message\ServerRequestInterface;
@@ -35,6 +36,8 @@ class RoomsController extends Controller
                 'ernestdefoe-parley.rooms.admin.order' => $this->order($request),
                 'ernestdefoe-parley.rooms.admin.image' => $this->image($request),
                 'ernestdefoe-parley.rooms.admin.image.delete' => $this->removeImage($request),
+                // The routes registered under this prefix are all listed above.
+                default => throw new RouteNotFoundException(),
             };
         }
 
