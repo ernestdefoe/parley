@@ -188,21 +188,19 @@ export default class ParleyState {
 
   beat() {
     this.lastBeatAt = Date.now();
-    return api
-      .heartbeat({ status: this.status, ...this.where() })
-      .then((r) => {
-        if (!r || !r.online) return;
-        this.online = r.online;
-        this.followingOffline = r.followingOffline || [];
-        this.more = r.more || 0;
-        this.guests = r.guests || 0;
-        this.rooms = r.rooms || [];
-        this.loaded = true;
-        // Keep the open conferences' team lists as fresh as the rest.
-        this.expanded.forEach((id) => this.loadChildren(id));
-        this.applyUnread(r.unread || {});
-        m.redraw();
-      });
+    return api.heartbeat({ status: this.status, ...this.where() }).then((r) => {
+      if (!r || !r.online) return;
+      this.online = r.online;
+      this.followingOffline = r.followingOffline || [];
+      this.more = r.more || 0;
+      this.guests = r.guests || 0;
+      this.rooms = r.rooms || [];
+      this.loaded = true;
+      // Keep the open conferences' team lists as fresh as the rest.
+      this.expanded.forEach((id) => this.loadChildren(id));
+      this.applyUnread(r.unread || {});
+      m.redraw();
+    });
   }
 
   /** A new place; tell the list now rather than in 30s. */
@@ -309,10 +307,13 @@ export default class ParleyState {
     // the signal fires every few seconds, and each one costs a full
     // heartbeat from every visible page.
     const wait = Math.max(0, (this.lastBeatAt || 0) + PRESENCE_MIN_GAP - Date.now());
-    this.presenceTimer = setTimeout(() => {
-      this.presenceTimer = null;
-      this.beat();
-    }, wait + 300 + Math.random() * 2000);
+    this.presenceTimer = setTimeout(
+      () => {
+        this.presenceTimer = null;
+        this.beat();
+      },
+      wait + 300 + Math.random() * 2000
+    );
   }
 
   /** For Parley Calls: bind more events on the same channel. */
@@ -336,7 +337,13 @@ export default class ParleyState {
 
   room(id) {
     id = Number(id);
-    return this.rooms.find((r) => r.id === id) || Object.values(this.childRooms).flat().find((r) => r.id === id) || null;
+    return (
+      this.rooms.find((r) => r.id === id) ||
+      Object.values(this.childRooms)
+        .flat()
+        .find((r) => r.id === id) ||
+      null
+    );
   }
 
   loadChildren(parentId) {
@@ -415,9 +422,7 @@ export default class ParleyState {
 
   /** Open the conversation with a person: click their row, their card, anything. */
   openWith(userId) {
-    const existing = [...this.convs.values()].find(
-      (c) => !c.summary.isGroup && c.summary.participants.some((p) => p.id === Number(userId))
-    );
+    const existing = [...this.convs.values()].find((c) => !c.summary.isGroup && c.summary.participants.some((p) => p.id === Number(userId)));
     if (existing) return Promise.resolve(this.show(existing.summary.id));
 
     return api.open(userId).then((r) => {

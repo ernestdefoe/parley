@@ -20,7 +20,7 @@ export { default as Icons } from './icons';
 const t = (key, params) => app.translator.trans('ernestdefoe-parley.forum.' + key, params);
 
 app.initializers.add('ernestdefoe-parley', () => {
-    /*
+  /*
    * 🚨 Not /messages: flarum/messages owns it, and two routes on one path stop
    * the whole forum booting. Not /chat either, which ramon/chat holds while
    * both are installed during a switch-over.
@@ -72,7 +72,9 @@ app.initializers.add('ernestdefoe-parley', () => {
 
     items.add(
       'parleyMessage',
-      <Button icon="fas fa-comment" onclick={() => s.openWith(user.id())}>{t('controls.message')}</Button>,
+      <Button icon="fas fa-comment" onclick={() => s.openWith(user.id())}>
+        {t('controls.message')}
+      </Button>,
       100
     );
 
@@ -92,7 +94,10 @@ app.initializers.add('ernestdefoe-parley', () => {
 
     items.add(
       'parleyBlock',
-      <Button icon="fas fa-ban" onclick={() => s.block(user.id(), true).then(() => app.alerts.show({ type: 'success' }, t('controls.blocked', { name: user.displayName() })))}>
+      <Button
+        icon="fas fa-ban"
+        onclick={() => s.block(user.id(), true).then(() => app.alerts.show({ type: 'success' }, t('controls.blocked', { name: user.displayName() })))}
+      >
         {t('controls.block')}
       </Button>
     );
@@ -109,7 +114,12 @@ app.initializers.add('ernestdefoe-parley', () => {
       'parleyWhoCanMessage',
       <div className="Form-group">
         <label htmlFor="Parley-who-can-message">{t('settings.who_can_message')}</label>
-        <select id="Parley-who-can-message" className="FormControl" value={current} onchange={(e) => user.savePreferences({ parleyWhoCanMessage: e.target.value })}>
+        <select
+          id="Parley-who-can-message"
+          className="FormControl"
+          value={current}
+          onchange={(e) => user.savePreferences({ parleyWhoCanMessage: e.target.value })}
+        >
           <option value="everyone">{t('settings.everyone')}</option>
           <option value="following">{t('settings.following')}</option>
           <option value="nobody">{t('settings.nobody')}</option>

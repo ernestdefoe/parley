@@ -17,7 +17,10 @@ export default class RoomRow extends Component {
     const unread = (r.unread || 0) + (isOpen ? 0 : r.childUnread || 0);
 
     return (
-      <div className={'pl-person pl-room' + (r.joined ? ' joined' : '') + (this.attrs.child ? ' child' : '')} tabindex="0" role="button"
+      <div
+        className={'pl-person pl-room' + (r.joined ? ' joined' : '') + (this.attrs.child ? ' child' : '')}
+        tabindex="0"
+        role="button"
         aria-label={extractText(t('open', { name: r.name }))}
         onclick={open}
         onkeydown={(e) => {
@@ -33,7 +36,12 @@ export default class RoomRow extends Component {
             {r.name}
             {r.readonly ? <span className="pl-badge">{t('announcements')}</span> : null}
             {/* Set by Parley Calls: how many are in this room's voice chat. */}
-            {r.voiceCount ? <span className="pl-voice-tag" title={extractText(t('in_voice', { count: r.voiceCount }))}>{Icons.speaker()}{r.voiceCount}</span> : null}
+            {r.voiceCount ? (
+              <span className="pl-voice-tag" title={extractText(t('in_voice', { count: r.voiceCount }))}>
+                {Icons.speaker()}
+                {r.voiceCount}
+              </span>
+            ) : null}
           </div>
           <div className="pl-act">
             {r.online ? [<i className="pl-live-dot" />, t('online_count', { count: r.online }), r.description ? ' · ' : ''] : null}
@@ -42,7 +50,9 @@ export default class RoomRow extends Component {
         </div>
         {unread ? <span className="pl-unread">{unread > 99 ? '99+' : unread}</span> : null}
         {r.children ? (
-          <button className={'pl-ib pl-expand' + (isOpen ? ' open' : '')} aria-expanded={String(isOpen)}
+          <button
+            className={'pl-ib pl-expand' + (isOpen ? ' open' : '')}
+            aria-expanded={String(isOpen)}
             aria-label={extractText(t(isOpen ? 'hide_teams' : 'show_teams', { count: r.children, name: r.name }))}
             title={extractText(t(isOpen ? 'hide_teams' : 'show_teams', { count: r.children, name: r.name }))}
             onclick={(e) => {

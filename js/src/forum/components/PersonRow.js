@@ -60,7 +60,10 @@ export default class PersonRow extends Component {
     if (p.activity && p.activity.roomId) {
       items.add(
         'goto',
-        <button className="pl-ib" title={extractText(t('rail.go_to', { place: p.activity.label }))} aria-label={extractText(t('rail.go_to', { place: p.activity.label }))}
+        <button
+          className="pl-ib"
+          title={extractText(t('rail.go_to', { place: p.activity.label }))}
+          aria-label={extractText(t('rail.go_to', { place: p.activity.label }))}
           onclick={() => app.parley.openRoom(p.activity.roomId)}
         >
           {Icons.goto()}
@@ -72,7 +75,11 @@ export default class PersonRow extends Component {
     if (href) {
       items.add(
         'goto',
-        <a className="pl-ib" href={href} title={extractText(t('rail.go_to', { place: p.activity.label }))} aria-label={extractText(t('rail.go_to', { place: p.activity.label }))}
+        <a
+          className="pl-ib"
+          href={href}
+          title={extractText(t('rail.go_to', { place: p.activity.label }))}
+          aria-label={extractText(t('rail.go_to', { place: p.activity.label }))}
           onclick={(e) => {
             e.preventDefault();
             m.route.set(href);
@@ -86,7 +93,12 @@ export default class PersonRow extends Component {
 
     items.add(
       'message',
-      <button className="pl-ib" title={extractText(t('rail.message'))} aria-label={extractText(t('rail.message_person', { name: p.displayName }))} onclick={() => app.parley.openWith(p.id)}>
+      <button
+        className="pl-ib"
+        title={extractText(t('rail.message'))}
+        aria-label={extractText(t('rail.message_person', { name: p.displayName }))}
+        onclick={() => app.parley.openWith(p.id)}
+      >
         {Icons.msg()}
       </button>,
       0

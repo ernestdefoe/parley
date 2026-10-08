@@ -126,7 +126,11 @@ export function readableOn(hex) {
   const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(String(hex || '').trim());
   if (!m) return '#ffffff';
   let h = m[1];
-  if (h.length === 3) h = h.split('').map((c) => c + c).join('');
+  if (h.length === 3)
+    h = h
+      .split('')
+      .map((c) => c + c)
+      .join('');
   const lin = (i) => {
     const c = parseInt(h.slice(i, i + 2), 16) / 255;
     return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);

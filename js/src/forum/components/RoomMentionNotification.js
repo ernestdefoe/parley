@@ -14,10 +14,13 @@ export default class RoomMentionNotification extends Notification {
   content() {
     const id = this.attrs.notification.content()?.conversationId;
     const room = app.parley && app.parley.room(id);
-    return app.translator.trans(room ? 'ernestdefoe-parley.forum.notifications.room_mention' : 'ernestdefoe-parley.forum.notifications.room_mention_plain', {
-      username: this.attrs.notification.fromUser()?.displayName(),
-      room: room ? room.name : '',
-    });
+    return app.translator.trans(
+      room ? 'ernestdefoe-parley.forum.notifications.room_mention' : 'ernestdefoe-parley.forum.notifications.room_mention_plain',
+      {
+        username: this.attrs.notification.fromUser()?.displayName(),
+        room: room ? room.name : '',
+      }
+    );
   }
 
   excerpt() {

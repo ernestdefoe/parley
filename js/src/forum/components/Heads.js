@@ -12,23 +12,38 @@ export default class Heads extends Component {
 
     return (
       <div className={'pl-heads' + (s.open.length ? ' above' : '')}>
-        {s.heads.filter((id) => s.conv(id)).map((id) => {
-          // Filtered first: a keyed list must not start with a null hole.
-          const conv = s.conv(id);
-          const peer = conv.summary.participants[0] || { displayName: '?' };
-          const live = { ...peer, ...s.presenceOf(peer.id) };
-          const unread = s.unread[id] || 0;
-          return (
-            <button key={id} className="pl-head" title={peer.displayName} aria-label={extractText(t('open_with', { name: peer.displayName }))} onclick={() => s.show(id)}>
-              {Avatar(live, 50, { dot: true })}
-              {unread ? <span className="pl-unread">{unread}</span> : null}
-              <span className="pl-x" role="button" aria-label={extractText(t('close'))} onclick={(e) => {
-                e.stopPropagation();
-                s.close(id);
-              }}>×</span>
-            </button>
-          );
-        })}
+        {s.heads
+          .filter((id) => s.conv(id))
+          .map((id) => {
+            // Filtered first: a keyed list must not start with a null hole.
+            const conv = s.conv(id);
+            const peer = conv.summary.participants[0] || { displayName: '?' };
+            const live = { ...peer, ...s.presenceOf(peer.id) };
+            const unread = s.unread[id] || 0;
+            return (
+              <button
+                key={id}
+                className="pl-head"
+                title={peer.displayName}
+                aria-label={extractText(t('open_with', { name: peer.displayName }))}
+                onclick={() => s.show(id)}
+              >
+                {Avatar(live, 50, { dot: true })}
+                {unread ? <span className="pl-unread">{unread}</span> : null}
+                <span
+                  className="pl-x"
+                  role="button"
+                  aria-label={extractText(t('close'))}
+                  onclick={(e) => {
+                    e.stopPropagation();
+                    s.close(id);
+                  }}
+                >
+                  ×
+                </span>
+              </button>
+            );
+          })}
       </div>
     );
   }

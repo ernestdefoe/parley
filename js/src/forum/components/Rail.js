@@ -20,7 +20,8 @@ export default class Rail extends Component {
     const me = s.me;
     const status = s.chosenStatus === 'online' && s.idle ? 'away' : s.chosenStatus;
     const f = s.filter.trim().toLowerCase();
-    const match = (p) => !f || p.displayName.toLowerCase().includes(f) || p.username.toLowerCase().includes(f) || (p.activity?.label || '').toLowerCase().includes(f);
+    const match = (p) =>
+      !f || p.displayName.toLowerCase().includes(f) || p.username.toLowerCase().includes(f) || (p.activity?.label || '').toLowerCase().includes(f);
     const order = { online: 0, busy: 1, away: 2, offline: 3 };
     const sort = (list) => [...list].sort((a, b) => order[a.status] - order[b.status] || a.displayName.localeCompare(b.displayName));
 
@@ -39,18 +40,18 @@ export default class Rail extends Component {
           <div className="pl-who">
             <div className="pl-nm">{meCard.displayName}</div>
             <div className="pl-me-line">
-            <button
-              className="pl-status-btn"
-              aria-haspopup="menu"
-              aria-expanded={String(s.statusMenu)}
-              onclick={() => {
-                s.statusMenu = !s.statusMenu;
-              }}
-            >
-              <i style={{ background: statusColor(status) }} />
-              {t('status.' + status)} {Icons.chev()}
-            </button>
-            {this.ownLine()}
+              <button
+                className="pl-status-btn"
+                aria-haspopup="menu"
+                aria-expanded={String(s.statusMenu)}
+                onclick={() => {
+                  s.statusMenu = !s.statusMenu;
+                }}
+              >
+                <i style={{ background: statusColor(status) }} />
+                {t('status.' + status)} {Icons.chev()}
+              </button>
+              {this.ownLine()}
             </div>
           </div>
           <button className="pl-ib" title={extractText(t('rail.hide'))} aria-label={extractText(t('rail.hide'))} onclick={() => s.toggleRail()}>
@@ -74,7 +75,9 @@ export default class Rail extends Component {
 
         <div className="pl-rail-scroll">
           {this.rooms(f)}
-          {following.length || !f ? this.section('follow', t('rail.following'), `${followingActive}/${following.length}`, following, t('rail.following_empty')) : null}
+          {following.length || !f
+            ? this.section('follow', t('rail.following'), `${followingActive}/${following.length}`, following, t('rail.following_empty'))
+            : null}
           {this.section('all', t('rail.online_now'), String(rest.length), rest, f ? t('rail.nobody_matches') : t('rail.nobody_online'))}
           {s.sections.all && !f && (s.more || s.guests) ? (
             <div className="pl-guests">
@@ -83,7 +86,15 @@ export default class Rail extends Component {
               {s.guests ? t('rail.guests_reading', { count: s.guests }) : null}
             </div>
           ) : null}
-          {others.length ? this.section('others', t('rail.other_members'), String(others.length), others.map((p) => ({ ...p, status: p.online ? 'online' : 'offline', activity: null })), null) : null}
+          {others.length
+            ? this.section(
+                'others',
+                t('rail.other_members'),
+                String(others.length),
+                others.map((p) => ({ ...p, status: p.online ? 'online' : 'offline', activity: null })),
+                null
+              )
+            : null}
         </div>
 
         <div className="pl-rail-foot">
@@ -101,7 +112,12 @@ export default class Rail extends Component {
   ownLine() {
     const a = ownActivity();
     if (!a) return null;
-    return <span className="pl-me-act">{' · '}{activityLine({ status: 'online', activity: a })}</span>;
+    return (
+      <span className="pl-me-act">
+        {' · '}
+        {activityLine({ status: 'online', activity: a })}
+      </span>
+    );
   }
 
   /** Rooms first: they are where the forum talks together. */
@@ -138,13 +154,13 @@ export default class Rail extends Component {
       <button className="pl-sec-h" aria-expanded={String(open)} onclick={() => (s.sections[key] = !open)}>
         {Icons.chev()} {title} <span className="pl-c">{count}</span>
       </button>,
-      open
-        ? people.length
-          ? people.map((p) => <PersonRow key={p.id} person={p} unread={this.unreadWith(p.id)} />)
-          : empty
-            ? <div className="pl-guests">{empty}</div>
-            : null
-        : null,
+      open ? (
+        people.length ? (
+          people.map((p) => <PersonRow key={p.id} person={p} unread={this.unreadWith(p.id)} />)
+        ) : empty ? (
+          <div className="pl-guests">{empty}</div>
+        ) : null
+      ) : null,
     ];
   }
 

@@ -37,18 +37,35 @@ export default class ChatWindow extends Component {
     const min = !this.attrs.page && s.minimised.has(id);
 
     if (!conv) {
-      return <section className="pl-win pl-loading" aria-busy="true"><div className="pl-w-head"><span className="pl-skel" /></div></section>;
+      return (
+        <section className="pl-win pl-loading" aria-busy="true">
+          <div className="pl-w-head">
+            <span className="pl-skel" />
+          </div>
+        </section>
+      );
     }
 
     const isRoom = conv.summary.type === 'room';
     const room = isRoom ? { ...(conv.summary.room || {}), ...(s.room(id) || {}) } : null;
     const peer = conv.summary.participants[0] || { displayName: '?' };
     const live = { ...peer, ...s.presenceOf(peer.id) };
-    const title = isRoom ? room.name : conv.summary.isGroup ? conv.summary.title || conv.summary.participants.map((p) => p.displayName).join(', ') : peer.displayName;
+    const title = isRoom
+      ? room.name
+      : conv.summary.isGroup
+        ? conv.summary.title || conv.summary.participants.map((p) => p.displayName).join(', ')
+        : peer.displayName;
     const status = isRoom
-      ? [room.online ? extractText(app.translator.trans('ernestdefoe-parley.forum.rooms.online_count', { count: room.online })) : null,
-         room.members !== undefined ? extractText(app.translator.trans('ernestdefoe-parley.forum.rooms.members_count', { count: room.members })) : null]
-          .filter(Boolean).join(' · ') || room.description || ''
+      ? [
+          room.online ? extractText(app.translator.trans('ernestdefoe-parley.forum.rooms.online_count', { count: room.online })) : null,
+          room.members !== undefined
+            ? extractText(app.translator.trans('ernestdefoe-parley.forum.rooms.members_count', { count: room.members }))
+            : null,
+        ]
+          .filter(Boolean)
+          .join(' · ') ||
+        room.description ||
+        ''
       : presenceLine(live);
     const canPost = !isRoom || !room.readonly || s.config.canModerate;
     const replying = s.replyTo[id];
@@ -56,7 +73,10 @@ export default class ChatWindow extends Component {
     const reporting = s.reporting && s.reporting.conversationId === id ? s.reporting.message : null;
 
     return (
-      <section className={'pl-win' + (min ? ' min' : '') + (s.flash.has(id) ? ' flash' : '') + (this.attrs.page ? ' page' : '')} aria-label={extractText(t('label', { name: title }))}>
+      <section
+        className={'pl-win' + (min ? ' min' : '') + (s.flash.has(id) ? ' flash' : '') + (this.attrs.page ? ' page' : '')}
+        aria-label={extractText(t('label', { name: title }))}
+      >
         <div className="pl-w-head">
           {isRoom ? RoomTile(room, 32) : Avatar(live, 32, { dot: true })}
           <div className="pl-who" onclick={() => !this.attrs.page && s.toggleMinimised(id)}>
@@ -75,17 +95,28 @@ export default class ChatWindow extends Component {
         {replying || editing ? (
           <div className="pl-replying">
             <span>{editing ? t('editing') : t('replying_to', { text: replying.body || extractText(t('photo')) })}</span>
-            <button aria-label={extractText(t('cancel'))} onclick={() => {
-              delete s.replyTo[id];
-              delete s.editing[id];
-            }}>{Icons.x()}</button>
+            <button
+              aria-label={extractText(t('cancel'))}
+              onclick={() => {
+                delete s.replyTo[id];
+                delete s.editing[id];
+              }}
+            >
+              {Icons.x()}
+            </button>
           </div>
         ) : null}
 
         {!canPost ? <div className="pl-readonly">{app.translator.trans('ernestdefoe-parley.forum.rooms.readonly_note')}</div> : null}
 
         <form className={'pl-composer' + (canPost ? '' : ' hidden')} onsubmit={(e) => this.submit(e, conv)}>
-          <button type="button" className="pl-ib" title={extractText(t('add_photo'))} aria-label={extractText(t('add_photo'))} onclick={(e) => e.currentTarget.nextElementSibling.click()}>
+          <button
+            type="button"
+            className="pl-ib"
+            title={extractText(t('add_photo'))}
+            aria-label={extractText(t('add_photo'))}
+            onclick={(e) => e.currentTarget.nextElementSibling.click()}
+          >
             {Icons.img()}
           </button>
           <input type="file" accept="image/jpeg,image/png,image/gif,image/webp" hidden onchange={(e) => this.upload(e, id)} />
@@ -135,7 +166,9 @@ export default class ChatWindow extends Component {
             }}
             onfocus={() => s.markRead(id)}
           />
-          <button className="pl-ib" aria-label={extractText(t('send'))} title={extractText(t('send'))} disabled={this.sending}>{Icons.send()}</button>
+          <button className="pl-ib" aria-label={extractText(t('send'))} title={extractText(t('send'))} disabled={this.sending}>
+            {Icons.send()}
+          </button>
         </form>
       </section>
     );
@@ -151,19 +184,36 @@ export default class ChatWindow extends Component {
     const items = new ItemList();
 
     if (conv.summary.type === 'room') {
-      items.add('leave', (
-        <button className="pl-ib plain" aria-label={extractText(t('leave_room'))} title={extractText(t('leave_room'))} onclick={() => s.leaveRoom(id)}>{Icons.door()}</button>
-      ), -5);
+      items.add(
+        'leave',
+        <button
+          className="pl-ib plain"
+          aria-label={extractText(t('leave_room'))}
+          title={extractText(t('leave_room'))}
+          onclick={() => s.leaveRoom(id)}
+        >
+          {Icons.door()}
+        </button>,
+        -5
+      );
     }
 
     if (this.attrs.page) return items;
 
-    items.add('minimise', (
-      <button className="pl-ib plain" aria-label={extractText(t('minimise'))} title={extractText(t('minimise'))} onclick={() => s.toHead(id)}>{Icons.min()}</button>
-    ), -10);
-    items.add('close', (
-      <button className="pl-ib plain" aria-label={extractText(t('close'))} title={extractText(t('close'))} onclick={() => s.close(id)}>{Icons.x()}</button>
-    ), -20);
+    items.add(
+      'minimise',
+      <button className="pl-ib plain" aria-label={extractText(t('minimise'))} title={extractText(t('minimise'))} onclick={() => s.toHead(id)}>
+        {Icons.min()}
+      </button>,
+      -10
+    );
+    items.add(
+      'close',
+      <button className="pl-ib plain" aria-label={extractText(t('close'))} title={extractText(t('close'))} onclick={() => s.close(id)}>
+        {Icons.x()}
+      </button>,
+      -20
+    );
 
     return items;
   }
@@ -236,18 +286,28 @@ export default class ChatWindow extends Component {
     };
 
     return (
-      <form className="pl-report" onsubmit={(e) => {
-        e.preventDefault();
-        api.report(message.id, this.reportReason || null).then(() => {
-          close();
-          app.alerts.show({ type: 'success' }, t('reported'));
-          m.redraw();
-        });
-      }}>
+      <form
+        className="pl-report"
+        onsubmit={(e) => {
+          e.preventDefault();
+          api.report(message.id, this.reportReason || null).then(() => {
+            close();
+            app.alerts.show({ type: 'success' }, t('reported'));
+            m.redraw();
+          });
+        }}
+      >
         <p>{t('report_prompt')}</p>
-        <input id={`Parley-report-${message.id}`} placeholder={extractText(t('report_reason'))} maxlength="500" oninput={(e) => (this.reportReason = e.target.value)} />
+        <input
+          id={`Parley-report-${message.id}`}
+          placeholder={extractText(t('report_reason'))}
+          maxlength="500"
+          oninput={(e) => (this.reportReason = e.target.value)}
+        />
         <div className="pl-report-actions">
-          <button type="button" onclick={close}>{t('cancel')}</button>
+          <button type="button" onclick={close}>
+            {t('cancel')}
+          </button>
           <button className="danger">{t('report_send')}</button>
         </div>
       </form>

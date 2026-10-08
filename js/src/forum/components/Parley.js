@@ -97,18 +97,27 @@ export default class Parley extends Component {
     const total = s.totalUnread();
 
     return (
-      <div className={'Parley' + (docked ? ' docked' : '') + (s.railSheet ? ' sheet' : '') + (s.open.some((id) => !s.minimised.has(id)) ? ' has-window' : '')}>
+      <div
+        className={
+          'Parley' + (docked ? ' docked' : '') + (s.railSheet ? ' sheet' : '') + (s.open.some((id) => !s.minimised.has(id)) ? ' has-window' : '')
+        }
+      >
         {showRail ? <Rail /> : null}
         {!onInbox ? <Heads /> : null}
         {!onInbox ? (
           <div className="pl-dock">
-            {s.open.map((id) => <ChatWindow key={id} id={id} />)}
+            {s.open.map((id) => (
+              <ChatWindow key={id} id={id} />
+            ))}
           </div>
         ) : null}
         {!showRail ? (
           <button className="pl-peek" onclick={() => s.toggleRail()} aria-label={extractText(t('rail.show'))}>
             <span className="pl-peek-dot" />
-            <span>{t('rail.peek', { count: s.onlineCount() })}{total ? [' · ', t('rail.peek_unread', { count: total })] : null}</span>
+            <span>
+              {t('rail.peek', { count: s.onlineCount() })}
+              {total ? [' · ', t('rail.peek_unread', { count: total })] : null}
+            </span>
           </button>
         ) : null}
       </div>

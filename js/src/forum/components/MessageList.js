@@ -51,7 +51,8 @@ export default class MessageList extends Component {
     const meId = Number(app.session.user.id());
     const peer = conv.summary.participants[0] || {};
     const isRoom = conv.summary.type === 'room';
-    const authorOf = (msg) => msg.author || app.parley.card(msg.userId) || conv.summary.participants.find((p) => p.id === msg.userId) || { displayName: '?' };
+    const authorOf = (msg) =>
+      msg.author || app.parley.card(msg.userId) || conv.summary.participants.find((p) => p.id === msg.userId) || { displayName: '?' };
     const lastMine = msgs.map((x) => x.userId).lastIndexOf(meId);
     const seenId = Math.max(0, ...Object.values(conv.summary.seenBy || {}).map((v) => v || 0));
     const typers = Object.keys(conv.typing || {}).map(Number);
@@ -84,8 +85,11 @@ export default class MessageList extends Component {
       }
 
       out.push(
-        <div className={`pl-row ${who} ${pos === 'single' ? '' : pos} ${pos === 'first' || pos === 'single' ? 'gap' : ''}`} title={clock(msg.createdAt)}>
-          {!mine ? (showFace ? Avatar(author, 26) : <span className="pl-sp" />) : null}
+        <div
+          className={`pl-row ${who} ${pos === 'single' ? '' : pos} ${pos === 'first' || pos === 'single' ? 'gap' : ''}`}
+          title={clock(msg.createdAt)}
+        >
+          {!mine ? showFace ? Avatar(author, 26) : <span className="pl-sp" /> : null}
           {this.bubble(msg)}
           {msg.deleted ? null : this.tray(msg, mine)}
         </div>
@@ -96,7 +100,10 @@ export default class MessageList extends Component {
         out.push(
           <div className={'pl-chips ' + who}>
             {chips.map(([emoji, n]) => (
-              <button className={'pl-chip' + (msg.reactions.some((r) => r.userId === meId && r.emoji === emoji) ? ' mine' : '')} onclick={() => app.parley.react(msg.id, emoji)}>
+              <button
+                className={'pl-chip' + (msg.reactions.some((r) => r.userId === meId && r.emoji === emoji) ? ' mine' : '')}
+                onclick={() => app.parley.react(msg.id, emoji)}
+              >
                 {emoji} {n}
               </button>
             ))}
@@ -105,11 +112,20 @@ export default class MessageList extends Component {
       }
 
       if (i === lastMine && i === msgs.length - 1 && !conv.summary.isGroup && seenId >= msg.id) {
-        out.push(<div className="pl-seen" title={extractText(t('seen'))}>{Avatar(peer, 14)}</div>);
+        out.push(
+          <div className="pl-seen" title={extractText(t('seen'))}>
+            {Avatar(peer, 14)}
+          </div>
+        );
       }
     });
 
-    if (!msgs.length) out.push(<div className="pl-empty">{isRoom ? app.translator.trans('ernestdefoe-parley.forum.rooms.empty') : t('say_hello', { name: peer.displayName })}</div>);
+    if (!msgs.length)
+      out.push(
+        <div className="pl-empty">
+          {isRoom ? app.translator.trans('ernestdefoe-parley.forum.rooms.empty') : t('say_hello', { name: peer.displayName })}
+        </div>
+      );
 
     typers.forEach((uid) => {
       const p = conv.summary.participants.find((x) => x.id === uid) || app.parley.card(uid);
@@ -117,7 +133,11 @@ export default class MessageList extends Component {
         out.push(
           <div className="pl-typing" aria-label={extractText(t('typing', { name: p.displayName }))}>
             {Avatar(p, 26)}
-            <div className="pl-bub"><i /><i /><i /></div>
+            <div className="pl-bub">
+              <i />
+              <i />
+              <i />
+            </div>
           </div>
         );
     });
@@ -165,9 +185,13 @@ export default class MessageList extends Component {
       <div className="pl-bub">
         {quote}
         {linkParts(msg.body || '').map((part) =>
-          typeof part === 'string'
-            ? mentionParts(part).map((bit) => (typeof bit === 'string' ? bit : <b className="pl-mention">@{bit.username}</b>))
-            : <a href={part.url} target="_blank" rel="nofollow ugc noopener">{part.url}</a>
+          typeof part === 'string' ? (
+            mentionParts(part).map((bit) => (typeof bit === 'string' ? bit : <b className="pl-mention">@{bit.username}</b>))
+          ) : (
+            <a href={part.url} target="_blank" rel="nofollow ugc noopener">
+              {part.url}
+            </a>
+          )
         )}
         {msg.editedAt ? <span className="pl-edited"> {t('edited')}</span> : null}
       </div>
@@ -182,16 +206,30 @@ export default class MessageList extends Component {
     return (
       <div className={'pl-react-tray' + (menuOpen ? ' open' : '')} role="group" aria-label={extractText(t('react'))}>
         {(s.config.reactions || []).map((e) => (
-          <button aria-label={e} onclick={() => s.react(msg.id, e)}>{e}</button>
+          <button aria-label={e} onclick={() => s.react(msg.id, e)}>
+            {e}
+          </button>
         ))}
-        <button className="pl-rp" onclick={() => {
-          s.replyTo[conv.summary.id] = msg;
-          document.getElementById(`Parley-input-${conv.summary.id}`)?.focus();
-        }}>{t('reply')}</button>
-        <button className="pl-rp pl-more" aria-label={extractText(t('more'))} aria-expanded={String(menuOpen)} onclick={() => {
-          this.menuFor = menuOpen ? null : msg.id;
-          this.confirmDelete = null;
-        }}>{Icons.more()}</button>
+        <button
+          className="pl-rp"
+          onclick={() => {
+            s.replyTo[conv.summary.id] = msg;
+            document.getElementById(`Parley-input-${conv.summary.id}`)?.focus();
+          }}
+        >
+          {t('reply')}
+        </button>
+        <button
+          className="pl-rp pl-more"
+          aria-label={extractText(t('more'))}
+          aria-expanded={String(menuOpen)}
+          onclick={() => {
+            this.menuFor = menuOpen ? null : msg.id;
+            this.confirmDelete = null;
+          }}
+        >
+          {Icons.more()}
+        </button>
         {menuOpen ? this.menu(msg, mine) : null}
       </div>
     );
@@ -208,7 +246,9 @@ export default class MessageList extends Component {
     if (this.confirmDelete === msg.id) {
       return (
         <div className="pl-msg-menu">
-          <button className="danger" onclick={() => s.remove(msg.id).then(done)}>{t('delete_for_everyone')}</button>
+          <button className="danger" onclick={() => s.remove(msg.id).then(done)}>
+            {t('delete_for_everyone')}
+          </button>
           <button onclick={done}>{t('cancel')}</button>
         </div>
       );
@@ -216,20 +256,43 @@ export default class MessageList extends Component {
 
     return (
       <div className="pl-msg-menu">
-        {msg.type === 'text' ? <button onclick={() => {
-          navigator.clipboard?.writeText(msg.body || '').catch(() => {});
-          done();
-        }}>{t('copy')}</button> : null}
-        {mine && msg.type === 'text' ? <button onclick={() => {
-          s.editing[id] = msg;
-          done();
-          setTimeout(() => document.getElementById(`Parley-input-${id}`)?.focus(), 0);
-        }}>{t('edit')}</button> : null}
-        {mine || (this.attrs.conv.summary.type === 'room' && s.config.canModerate) ? <button className="danger" onclick={() => (this.confirmDelete = msg.id)}>{t('delete')}</button> : null}
-        {!mine ? <button className="danger" onclick={() => {
-          s.reporting = { conversationId: id, message: msg };
-          done();
-        }}>{t('report')}</button> : null}
+        {msg.type === 'text' ? (
+          <button
+            onclick={() => {
+              navigator.clipboard?.writeText(msg.body || '').catch(() => {});
+              done();
+            }}
+          >
+            {t('copy')}
+          </button>
+        ) : null}
+        {mine && msg.type === 'text' ? (
+          <button
+            onclick={() => {
+              s.editing[id] = msg;
+              done();
+              setTimeout(() => document.getElementById(`Parley-input-${id}`)?.focus(), 0);
+            }}
+          >
+            {t('edit')}
+          </button>
+        ) : null}
+        {mine || (this.attrs.conv.summary.type === 'room' && s.config.canModerate) ? (
+          <button className="danger" onclick={() => (this.confirmDelete = msg.id)}>
+            {t('delete')}
+          </button>
+        ) : null}
+        {!mine ? (
+          <button
+            className="danger"
+            onclick={() => {
+              s.reporting = { conversationId: id, message: msg };
+              done();
+            }}
+          >
+            {t('report')}
+          </button>
+        ) : null}
       </div>
     );
   }
@@ -253,7 +316,15 @@ export default class MessageList extends Component {
     const text = answered
       ? [t(video ? 'call_video' : 'call_voice'), length ? ' · ' + length : '']
       : iCalled
-        ? t(meta.outcome === 'declined' ? (video ? 'call_video_declined' : 'call_voice_declined') : video ? 'call_video_unanswered' : 'call_voice_unanswered')
+        ? t(
+            meta.outcome === 'declined'
+              ? video
+                ? 'call_video_declined'
+                : 'call_voice_declined'
+              : video
+                ? 'call_video_unanswered'
+                : 'call_voice_unanswered'
+          )
         : t('call_missed');
 
     return (
@@ -269,11 +340,12 @@ export default class MessageList extends Component {
     const d = new Date(iso);
     const today = new Date();
     const yesterday = new Date(Date.now() - 86400000);
-    const day = d.toDateString() === today.toDateString()
-      ? extractText(t('today'))
-      : d.toDateString() === yesterday.toDateString()
-        ? extractText(t('yesterday'))
-        : d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+    const day =
+      d.toDateString() === today.toDateString()
+        ? extractText(t('today'))
+        : d.toDateString() === yesterday.toDateString()
+          ? extractText(t('yesterday'))
+          : d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
     return day;
   }
 }
