@@ -35,21 +35,33 @@ $fetch = function (string $url): ?string {
 $fresh = fn (int $id) => $db->table('parley_conversations')->find($id);
 
 $conferenceTags = $db->table('tags')->whereNull('parent_id')->whereIn('name', array_keys($espnConf))->orderBy('position')->get();
-$made = 0; $kept = 0; $logos = 0; $darks = 0; $missing = [];
+$made = 0;
+$kept = 0;
+$logos = 0;
+$darks = 0;
+$missing = [];
 
 foreach ($conferenceTags as $ctag) {
     $conf = $db->table('parley_conversations')->where('type', 'room')->where('tag_id', $ctag->id)->first();
     if (! $conf && $createConferences) {
         $conf = $rooms->save(null, ['name' => $ctag->name, 'tagId' => $ctag->id]);
-        if ($f = $fetch("https://a.espncdn.com/i/teamlogos/ncaa_conf/500/{$espnConf[$ctag->name]}.png")) { $images->set($conf, $f); @unlink($f); }
+        if ($f = $fetch("https://a.espncdn.com/i/teamlogos/ncaa_conf/500/{$espnConf[$ctag->name]}.png")) {
+            $images->set($conf, $f);
+            @unlink($f);
+        }
     }
-    if (! $conf) { echo "no room for conference {$ctag->name} — skipped\n"; continue; }
+    if (! $conf) {
+        echo "no room for conference {$ctag->name} — skipped\n";
+        continue;
+    }
 
     // ESPN's own dark logo for the conference, where it publishes one.
     $confRow = $fresh((int) $conf->id);
     if ($confRow->image_path && (! $confRow->image_dark_path || str_contains($confRow->image_dark_path, '-dark-auto-'))) {
         if ($f = $fetch("https://a.espncdn.com/i/teamlogos/ncaa_conf/500-dark/{$espnConf[$ctag->name]}.png")) {
-            $images->set($confRow, $f, 'dark'); @unlink($f); $darks++;
+            $images->set($confRow, $f, 'dark');
+            @unlink($f);
+            $darks++;
         } elseif (! $confRow->image_dark_path) {
             // ESPN has none (CUSA, Sun Belt): store the room's own logo again,
             // which makes a dark version from it when it needs one.
@@ -73,7 +85,9 @@ foreach ($conferenceTags as $ctag) {
             $made++;
         }
         $room = $fresh((int) $room->id);
-        if ($room->image_path) { continue; }
+        if ($room->image_path) {
+            continue;
+        }
 
         $team = $db->table('gameday_team_tags as g')->join('picks_teams as p', 'p.id', '=', 'g.team_id')
             ->where('g.tag_id', $ttag->id)->first(['p.logo_path', 'p.logo_dark_path', 'p.espn_id']);
@@ -82,9 +96,18 @@ foreach ($conferenceTags as $ctag) {
         $light = $team ? ($team->logo_path ?: ($team->espn_id ? "https://a.espncdn.com/i/teamlogos/ncaa/500/{$team->espn_id}.png" : null)) : null;
         $dark = $team ? ($team->logo_dark_path ?: ($team->espn_id ? "https://a.espncdn.com/i/teamlogos/ncaa/500-dark/{$team->espn_id}.png" : null)) : null;
 
-        if (! $light || ! str_starts_with($light, 'http') || ! ($f = $fetch($light))) { $missing[] = $ttag->name; continue; }
-        $images->set($room, $f); @unlink($f); $logos++;
-        if ($dark && str_starts_with($dark, 'http') && ($f = $fetch($dark))) { $images->set($fresh((int) $room->id), $f, 'dark'); @unlink($f); $darks++; }
+        if (! $light || ! str_starts_with($light, 'http') || ! ($f = $fetch($light))) {
+            $missing[] = $ttag->name;
+            continue;
+        }
+        $images->set($room, $f);
+        @unlink($f);
+        $logos++;
+        if ($dark && str_starts_with($dark, 'http') && ($f = $fetch($dark))) {
+            $images->set($fresh((int) $room->id), $f, 'dark');
+            @unlink($f);
+            $darks++;
+        }
     }
 }
 

@@ -4,8 +4,8 @@ namespace Ernestdefoe\Parley;
 
 use Flarum\Foundation\ValidationException;
 use Flarum\Locale\TranslatorInterface;
-use Illuminate\Contracts\Filesystem\Factory;
 use Illuminate\Contracts\Filesystem\Cloud;
+use Illuminate\Contracts\Filesystem\Factory;
 use Illuminate\Database\ConnectionInterface;
 
 /**
@@ -275,12 +275,17 @@ class RoomImages
             : abs((($c >> 16) & 0xFF) - (($corner >> 16) & 0xFF)) + abs((($c >> 8) & 0xFF) - (($corner >> 8) & 0xFF)) + abs(($c & 0xFF) - ($corner & 0xFF)) < 24;
 
         $step = max(1, (int) floor(max($w, $h) / 500));
-        $minX = $w; $minY = $h; $maxX = -1; $maxY = -1;
+        $minX = $w;
+        $minY = $h;
+        $maxX = -1;
+        $maxY = -1;
         for ($y = 0; $y < $h; $y += $step) {
             for ($x = 0; $x < $w; $x += $step) {
                 if (! $empty(imagecolorat($img, $x, $y))) {
-                    $minX = min($minX, $x); $maxX = max($maxX, $x);
-                    $minY = min($minY, $y); $maxY = max($maxY, $y);
+                    $minX = min($minX, $x);
+                    $maxX = max($maxX, $x);
+                    $minY = min($minY, $y);
+                    $maxY = max($maxY, $y);
                 }
             }
         }
