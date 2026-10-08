@@ -3,4 +3,7 @@ node_modules
 vendor
 composer.lock
 .DS_Store
-/js/package-lock.json
+
+/composer.lock
+.phpunit.result.cache
+/tests/integration/tmp
