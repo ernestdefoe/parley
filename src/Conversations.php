@@ -460,7 +460,7 @@ class Conversations
     public function react(int $messageId, User $actor, string $emoji): array
     {
         if (! in_array($emoji, self::REACTIONS, true)) {
-            throw new ValidationException(['emoji' => 'Unknown reaction.']);
+            throw new ValidationException(['emoji' => $this->translator->trans('ernestdefoe-parley.api.unknown_reaction')]);
         }
 
         $message = $this->message($messageId);

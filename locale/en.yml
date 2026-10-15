@@ -141,6 +141,8 @@ ernestdefoe-parley:
 
   api:
     empty_message: Type a message first.
+    unknown_reaction: Unknown reaction.
+    no_image: No image was sent.
     too_long: "A message can be at most {max} characters."
     upload_failed: The picture did not upload. Try again.
     image_too_big: "That picture is larger than {max} MB."
