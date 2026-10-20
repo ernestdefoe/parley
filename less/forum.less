@@ -142,8 +142,20 @@
 @media (min-width: 1200px) {
   body.Parley--docked {
     .App { padding-right: 300px; }
-    .App-header, #header { right: 300px; }
-    .App-composer .Composer:not(.fullScreen) { right: 300px; }
+
+    /* 🚨 The docked list sits UNDER the header, never beside it.
+       Shrinking the header by 300px left a busy forum's logo and controls no
+       room for the nav: core's OverflowingList reads zero free space as "not
+       measurable yet" and keeps its last count, so the nav links were drawn
+       over the controls. The header keeps the full width; the list starts
+       where it ends, and below it so the header's dropdowns open over it. */
+    .Parley .pl-rail { top: var(--header-height, 56px); z-index: 999; }
+
+    /* 🚨 The composer bar, not the composer. .Composer is position: relative
+       inside the fixed .App-composer, so `right` on it slid it 300px off the
+       left edge instead of narrowing it. A full-screen composer is fixed to
+       the viewport and still covers everything. */
+    .App-composer { right: 300px; }
 
     /* Bespoke's back-to-top is fixed to the right edge, which the docked
        list covers. It moves to sit beside the list instead of under it. */
