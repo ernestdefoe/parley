@@ -1,9 +1,13 @@
 <?php
 
+use Ernestdefoe\Parley\Images;
 use Flarum\Database\Migration;
+use Illuminate\Container\Container;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Database\Schema\Builder;
 
-return Migration::createTable('parley_messages', function (Blueprint $table) {
+// Purging the extension takes the pictures sent in conversations with the table.
+$migration = Migration::createTable('parley_messages', function (Blueprint $table) {
     $table->increments('id');
     $table->unsignedInteger('conversation_id');
     // Null once the sender's account is deleted; the conversation keeps the
@@ -22,3 +26,11 @@ return Migration::createTable('parley_messages', function (Blueprint $table) {
     $table->foreign('conversation_id')->references('id')->on('parley_conversations')->cascadeOnDelete();
     $table->foreign('user_id')->references('id')->on('users')->nullOnDelete();
 });
+
+$drop = $migration['down'];
+$migration['down'] = function (Builder $schema) use ($drop) {
+    Images::purge(Container::getInstance());
+    $drop($schema);
+};
+
+return $migration;

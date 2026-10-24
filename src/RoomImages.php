@@ -4,6 +4,7 @@ namespace Ernestdefoe\Parley;
 
 use Flarum\Foundation\ValidationException;
 use Flarum\Locale\TranslatorInterface;
+use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Filesystem\Cloud;
 use Illuminate\Contracts\Filesystem\Factory;
 use Illuminate\Database\ConnectionInterface;
@@ -28,11 +29,33 @@ class RoomImages
 
     private const TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
 
+    /** The shape of every path set() gives a logo. */
+    private const NAME = '~^parley/rooms/\d+-(dark-(auto-)?)?[0-9a-f]{12}\.png$~D';
+
     public function __construct(
         protected Factory $filesystems,
         protected ConnectionInterface $db,
         protected TranslatorInterface $translator
     ) {
+    }
+
+    /**
+     * Purging the extension deletes every room logo it stored. Called by the
+     * conversations table's down(), so disabling alone keeps them.
+     *
+     * flarum-assets is core's disk, so it is there while the extension is
+     * disabled, and a configured storage driver still applies. Only paths of
+     * the shape set() writes are deleted.
+     */
+    public static function purge(Container $container): void
+    {
+        $disk = $container->make(Factory::class)->disk('flarum-assets');
+
+        $disk->delete(preg_grep(self::NAME, $disk->files('parley/rooms')));
+
+        if ($disk->allFiles('parley') === []) {
+            $disk->deleteDirectory('parley');
+        }
     }
 
     public function url(?string $path): ?string

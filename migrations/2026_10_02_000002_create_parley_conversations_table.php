@@ -1,9 +1,13 @@
 <?php
 
+use Ernestdefoe\Parley\RoomImages;
 use Flarum\Database\Migration;
+use Illuminate\Container\Container;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Database\Schema\Builder;
 
-return Migration::createTable('parley_conversations', function (Blueprint $table) {
+// Purging the extension takes the rooms' logos with the table.
+$migration = Migration::createTable('parley_conversations', function (Blueprint $table) {
     $table->increments('id');
     $table->boolean('is_group')->default(false);
     $table->string('title', 100)->nullable();
@@ -17,3 +21,11 @@ return Migration::createTable('parley_conversations', function (Blueprint $table
 
     $table->foreign('creator_id')->references('id')->on('users')->nullOnDelete();
 });
+
+$drop = $migration['down'];
+$migration['down'] = function (Builder $schema) use ($drop) {
+    RoomImages::purge(Container::getInstance());
+    $drop($schema);
+};
+
+return $migration;
