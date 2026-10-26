@@ -1774,7 +1774,8 @@
   .Parley .pl-rail { width: 100%; border-left: 0; }
   /* A conversation fills the phone; the pill would sit on its composer. */
   .Parley.has-window .pl-peek, .Parley.has-window .pl-heads { display: none; }
-  .Parley .pl-dock { right: 0; left: 0; top: 0; bottom: var(--parley-bar, 0px); align-items: stretch; }
+  /* Above a bottom bar, and while typing, above the keyboard (Parley.keyboard). */
+  .Parley .pl-dock { right: 0; left: 0; top: 0; bottom: ~"calc(var(--parley-bar, 0px) + var(--parley-kb, 0px))"; align-items: stretch; }
   .Parley .pl-dock:empty { display: none; }
   .Parley .pl-win { display: none; width: 100%; height: 100%; border-radius: 0; border: 0; }
   .Parley .pl-win:last-child { display: flex; }
@@ -1790,9 +1791,17 @@
     grid-template-columns: minmax(0, 1fr);
     border: 0;
     border-radius: 0;
-    height: ~"calc(100vh - var(--header-height-phone, 46px) - var(--parley-bar, 0px))";
-    height: ~"calc(100dvh - var(--header-height-phone, 46px) - var(--parley-bar, 0px))";
+    /* Pinned between the forum's header and a bottom bar — or, while typing,
+       the keyboard — like a mini window, so the page never scrolls the
+       conversation away from what is being typed. */
+    position: fixed;
+    top: var(--parley-top, var(--header-height-phone, 46px));
+    left: 0;
+    right: 0;
+    bottom: ~"calc(var(--parley-bar, 0px) + var(--parley-kb, 0px))";
+    height: auto;
     min-height: 0;
+    z-index: 2;
 
     &.has-selected .pl-list { display: none; }
     &:not(.has-selected) .pl-chat { display: none; }

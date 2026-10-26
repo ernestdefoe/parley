@@ -54,6 +54,52 @@ export default class Parley extends Component {
     };
     document.addEventListener('pointerdown', this.away, true);
     document.addEventListener('keydown', this.escape);
+
+    /*
+     * Typing on a phone. The keyboard covers the bottom of the screen and a
+     * bar fixed there (Mobile Tab's) rides up over the message box, so you
+     * could not see what you typed. While a Parley field has focus on a
+     * phone, bars along the bottom step aside, as a phone's own messenger
+     * hides its tab bar, and the box follows the part of the screen the
+     * keyboard leaves visible.
+     */
+    this.bars = new Set();
+    this.fullHeight = window.innerHeight;
+    const field = (el) => el && el.closest && el.closest('.Parley') && /^(TEXTAREA|INPUT)$/.test(el.tagName);
+    let settle = null;
+    this.keyboard = () => {
+      const vv = window.visualViewport;
+      const focused = app.parley.isMobile() && field(document.activeElement);
+      if (!focused) this.fullHeight = Math.max(window.innerHeight, vv ? vv.height : 0);
+      // The keyboard is up when the visible part of the screen is well short
+      // of its full height; a field can keep focus after it is put away.
+      const open = focused && vv && vv.height < this.fullHeight - 120;
+      const hidden = open ? Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop)) : 0;
+      if (open !== !!this.typing) {
+        this.typing = open;
+        this.bars.forEach((el) => (open ? el.setAttribute('data-parley-covered', '') : el.removeAttribute('data-parley-covered')));
+        if (!open) this.measure();
+      }
+      const html = document.documentElement.style;
+      html.setProperty('--parley-kb', hidden + 'px');
+      if (open) html.setProperty('--parley-bar', '0px');
+      // Keyboards animate: look once more when it has finished moving.
+      clearTimeout(settle);
+      settle = setTimeout(() => this.keyboard.again && this.keyboard.again(), 350);
+    };
+    this.keyboard.again = () => {
+      const keep = this.keyboard.again;
+      this.keyboard.again = null;
+      this.keyboard();
+      this.keyboard.again = keep;
+    };
+    this.focusIn = () => this.keyboard();
+    this.focusOut = () => setTimeout(() => this.keyboard(), 50);
+    window.addEventListener('resize', this.keyboard);
+    document.addEventListener('focusin', this.focusIn);
+    document.addEventListener('focusout', this.focusOut);
+    window.visualViewport?.addEventListener('resize', this.keyboard);
+    window.visualViewport?.addEventListener('scroll', this.keyboard);
     this.measure();
   }
 
@@ -64,6 +110,12 @@ export default class Parley extends Component {
     window.removeEventListener('resize', this.measure);
     document.removeEventListener('pointerdown', this.away, true);
     document.removeEventListener('keydown', this.escape);
+    document.removeEventListener('focusin', this.focusIn);
+    document.removeEventListener('focusout', this.focusOut);
+    window.visualViewport?.removeEventListener('resize', this.keyboard);
+    window.visualViewport?.removeEventListener('scroll', this.keyboard);
+    window.removeEventListener('resize', this.keyboard);
+    this.bars.forEach((el) => el.removeAttribute('data-parley-covered'));
   }
 
   /**
@@ -95,14 +147,20 @@ export default class Parley extends Component {
     const isBar = (r) => r.width >= vw * 0.9 && r.bottom >= vh - 2 && r.height <= 100;
 
     // Bars along the bottom edge, sampled across it.
+    // While typing on a phone the bars are stepped aside: leave them be.
     let bar = 0;
-    for (const x of [vw * 0.1, vw * 0.5, vw * 0.9]) {
+    const bars = new Set();
+    for (const x of this.typing ? [] : [vw * 0.1, vw * 0.5, vw * 0.9]) {
       for (const el of document.elementsFromPoint(x, vh - 4)) {
         if (!foreign(el)) continue;
         const r = fixedRect(el);
-        if (r && isBar(r)) bar = Math.max(bar, vh - r.top);
+        if (r && isBar(r)) {
+          bar = Math.max(bar, vh - r.top);
+          bars.add(el);
+        }
       }
     }
+    if (!this.typing) this.bars = bars;
 
     // Small buttons in the heads' and pill's column, above the bars.
     const column = root.querySelector('.pl-heads, .pl-peek');
@@ -122,7 +180,10 @@ export default class Parley extends Component {
     }
 
     // Small buttons over an open window: hidden while it is open.
-    const wins = [...root.querySelectorAll('.pl-dock .pl-win:not(.min)')].map((w) => w.getBoundingClientRect()).filter((r) => r.width);
+    // Mini windows, and the conversation on the messages page.
+    const wins = [...document.querySelectorAll('.pl-dock .pl-win:not(.min), .pl-win.page')]
+      .map((w) => w.getBoundingClientRect())
+      .filter((r) => r.width);
     const overlaps = (r) => wins.some((w) => r.left < w.right && r.right > w.left && r.top < w.bottom && r.bottom > w.top);
     const now = new Set();
     for (const w of wins) {
@@ -133,7 +194,7 @@ export default class Parley extends Component {
         [w.left + 30, w.bottom - 30],
       ]) {
         for (const el of document.elementsFromPoint(x, y)) {
-          if (!foreign(el) || root.contains(el)) continue;
+          if (!foreign(el) || el.closest('.Parley')) continue;
           const r = fixedRect(el);
           if (r && r.width <= vw / 2 && r.height <= 120) now.add(el);
         }
@@ -157,9 +218,19 @@ export default class Parley extends Component {
    * leaves the top of the screen free again.
    */
   clearHeader(root) {
-    const header = document.getElementById('header');
-    const bottom = header ? Math.max(0, Math.round(header.getBoundingClientRect().bottom)) : null;
-    if (bottom !== null) root.style.setProperty('--pl-top', bottom + 'px');
+    // On a phone #header is the drawer, off the side of the screen, and the
+    // bar across the top is #app-navigation.
+    const bars = ['header', 'app-navigation']
+      .map((id) => document.getElementById(id))
+      .filter(Boolean)
+      .map((el) => el.getBoundingClientRect())
+      .filter((r) => r.height && r.left >= 0 && r.left < window.innerWidth);
+    const bottom = bars.length ? Math.max(0, Math.round(Math.max(...bars.map((r) => r.bottom)))) : null;
+    if (bottom !== null) {
+      root.style.setProperty('--pl-top', bottom + 'px');
+      // The messages page on a phone sits under it too.
+      document.documentElement.style.setProperty('--parley-top', bottom + 'px');
+    }
   }
 
   onupdate(vnode) {
