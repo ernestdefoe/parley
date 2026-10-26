@@ -16,6 +16,7 @@ const t = (key, params) => app.translator.trans('ernestdefoe-parley.forum.' + ke
 export default class Parley extends Component {
   oncreate(vnode) {
     super.oncreate(vnode);
+    this.covered = new Set();
     this.sync();
 
     // Re-measured when the page scrolls or resizes, which is when a theme's
@@ -40,41 +41,94 @@ export default class Parley extends Component {
 
   onremove(vnode) {
     super.onremove(vnode);
+    this.covered.forEach((el) => el.removeAttribute('data-parley-covered'));
     window.removeEventListener('scroll', this.measure);
     window.removeEventListener('resize', this.measure);
   }
 
   /**
-   * Keep clear of whatever else a theme fixes to the bottom-right corner —
-   * Bespoke's back-to-top button, most often. The pill and the heads sit in
-   * that corner too, and drawn over each other neither can be clicked.
+   * Keep clear of whatever else a page fixes to the bottom of the screen —
+   * a theme's back-to-top button (Bespoke's, most often), Mobile Tab's bar,
+   * a minimised composer. Found by looking at what is there, never by naming
+   * one theme's button, so any forum's works.
    *
-   * Found by looking at what is under the corner, not by naming one theme's
-   * button, so any theme's works. Full-width bars (the composer, a cookie
-   * banner) are not something to step over and are ignored.
+   * - Bars across the bottom (Mobile Tab, the composer): everything of
+   *   Parley's sits above them — heads, pill and windows (`--parley-bar`).
+   * - Small buttons in the column the heads and pill use: those lift above
+   *   them (`--pl-lift`).
+   * - Small buttons over an open window: the window wins. They are faded
+   *   out while it is open and come back as soon as it closes or moves.
    */
   clearCorner(root) {
-    const probes = [
-      [window.innerWidth - 34, window.innerHeight - 34],
-      [window.innerWidth - 60, window.innerHeight - 30],
-    ];
-    let lift = 0;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const foreign = (el) => el && !root.contains(el) && el !== document.body && el !== document.documentElement;
+    const fixedRect = (el) => {
+      const style = getComputedStyle(el);
+      // A hidden button is usually faded out, and opacity is animated, so
+      // mid-fade it reads as half there. `pointer-events: none` is how
+      // themes switch it off, and that changes at once.
+      if (style.position !== 'fixed' || style.visibility === 'hidden' || style.pointerEvents === 'none') return null;
+      const r = el.getBoundingClientRect();
+      return r.width && r.height ? r : null;
+    };
+    const isBar = (r) => r.width >= vw * 0.9 && r.bottom >= vh - 2 && r.height <= 100;
 
-    for (const [x, y] of probes) {
-      for (const el of document.elementsFromPoint(x, y)) {
-        if (root.contains(el) || el === document.body || el === document.documentElement) continue;
-        const style = getComputedStyle(el);
-        // A hidden button is usually faded out, and opacity is animated, so
-        // mid-fade it reads as half there. `pointer-events: none` is how
-        // themes switch it off, and that changes at once.
-        if (style.position !== 'fixed' || style.visibility === 'hidden' || style.pointerEvents === 'none') continue;
-        const r = el.getBoundingClientRect();
-        if (r.width === 0 || r.height === 0 || r.width > window.innerWidth / 2) continue;
-        lift = Math.max(lift, window.innerHeight - r.top - 14 + 10);
+    // Bars along the bottom edge, sampled across it.
+    let bar = 0;
+    for (const x of [vw * 0.1, vw * 0.5, vw * 0.9]) {
+      for (const el of document.elementsFromPoint(x, vh - 4)) {
+        if (!foreign(el)) continue;
+        const r = fixedRect(el);
+        if (r && isBar(r)) bar = Math.max(bar, vh - r.top);
       }
     }
 
-    root.style.setProperty('--pl-lift', Math.max(0, Math.round(lift)) + 'px');
+    // Small buttons in the heads' and pill's column, above the bars.
+    const column = root.querySelector('.pl-heads, .pl-peek');
+    const cr = column && column.getBoundingClientRect();
+    const cx = cr && cr.width ? cr.left + cr.width / 2 : vw - 34;
+    let lift = 0;
+    for (const [x, y] of [
+      [cx, vh - bar - 34],
+      [cx - 26, vh - bar - 30],
+    ]) {
+      for (const el of document.elementsFromPoint(x, y)) {
+        if (!foreign(el) || this.covered.has(el)) continue;
+        const r = fixedRect(el);
+        if (!r || r.width > vw / 2) continue;
+        lift = Math.max(lift, vh - bar - r.top + 10 - 14);
+      }
+    }
+
+    // Small buttons over an open window: hidden while it is open.
+    const wins = [...root.querySelectorAll('.pl-dock .pl-win:not(.min)')].map((w) => w.getBoundingClientRect()).filter((r) => r.width);
+    const overlaps = (r) => wins.some((w) => r.left < w.right && r.right > w.left && r.top < w.bottom && r.bottom > w.top);
+    const now = new Set();
+    for (const w of wins) {
+      for (const [x, y] of [
+        [w.right - 30, w.bottom - 30],
+        [w.right - 30, w.bottom - 80],
+        [w.left + w.width / 2, w.bottom - 30],
+        [w.left + 30, w.bottom - 30],
+      ]) {
+        for (const el of document.elementsFromPoint(x, y)) {
+          if (!foreign(el) || root.contains(el)) continue;
+          const r = fixedRect(el);
+          if (r && r.width <= vw / 2 && r.height <= 120) now.add(el);
+        }
+      }
+    }
+    // Ones already hidden no longer answer a hit test; keep them while they
+    // still sit over a window.
+    this.covered.forEach((el) => document.contains(el) && overlaps(el.getBoundingClientRect()) && now.add(el));
+    this.covered.forEach((el) => !now.has(el) && el.removeAttribute('data-parley-covered'));
+    now.forEach((el) => el.setAttribute('data-parley-covered', ''));
+    this.covered = now;
+
+    const html = document.documentElement.style;
+    html.setProperty('--parley-bar', Math.round(bar) + 'px');
+    root.style.setProperty('--pl-lift', Math.max(0, Math.round(lift + bar)) + 'px');
   }
 
   /**
@@ -91,6 +145,8 @@ export default class Parley extends Component {
   onupdate(vnode) {
     super.onupdate(vnode);
     this.sync();
+    // A window opened, closed or moved: look again at what it covers.
+    this.measure();
   }
 
   /** The page makes room for the docked rail; the class lives on <body>. */

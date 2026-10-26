@@ -173,7 +173,7 @@ try {
   // 8. Forward to ben.
   await menu(/^Forward$/);
   await admin.waitForSelector('.ParleyForwardModal .pl-forward-row');
-  await admin.evaluate(() => [...document.querySelectorAll('.pl-forward-row')].find((r) => r.textContent.includes('ben')).click());
+  await admin.evaluate(() => [...document.querySelectorAll('.pl-forward-row')].find((r) => r.textContent.toLowerCase().includes('ben')).click());
   const picked = await admin.$$eval('.pl-forward-row input:checked', (x) => x.length);
   await admin.click('.ParleyForwardModal button[type=submit]');
   await sleep(1500);
@@ -240,12 +240,12 @@ try {
   await admin.evaluate((id) => m.route.set(app.route('parley.inbox')), null);
   await sleep(800);
   await admin.evaluate(() => {
-    const item = [...document.querySelectorAll('.pl-item')].find((i) => i.querySelector('.pl-nm')?.textContent.trim().startsWith('ben'));
+    const item = [...document.querySelectorAll('.pl-item')].find((i) => i.querySelector('.pl-nm')?.textContent.trim().toLowerCase().startsWith('ben'));
     item.querySelector('.pl-item-menu .Dropdown-toggle').click();
   });
   await sleep(300);
   await admin.evaluate(() => [...document.querySelectorAll('.pl-item-menu.open .Dropdown-menu button')].find((b) => b.textContent.trim() === 'Archive').click());
-  ok('archived leaves the inbox', await until(admin, () => ![...document.querySelectorAll('.pl-item .pl-nm')].some((n) => n.textContent.trim() === 'ben')));
+  ok('archived leaves the inbox', await until(admin, () => ![...document.querySelectorAll('.pl-item .pl-nm')].some((n) => n.textContent.trim().toLowerCase().startsWith('ben'))));
   await sleep(1200);
   const arch = await api(admin, 'GET', '/parley/conversations?filter=archived');
   ok('…and is under Archived', arch.conversations.some((c) => c.id === benConv));

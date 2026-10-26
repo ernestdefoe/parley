@@ -112,7 +112,8 @@
        off the left edge instead of narrowing it. */
     .App-composer { right: 300px; }
 
-    /* Bespoke's back-to-top moves beside the list instead of under it. */
+    /* Bespoke's back-to-top moves beside the list instead of under it.
+       Over an open chat window it is faded out ([data-parley-covered]). */
     #bespoke-totop, .Bespoke-toTop { right: 318px; }
   }
 }
@@ -467,10 +468,19 @@
 
 /* ── Docked mini windows ───────────────────────────────────────────────── */
 
+/* Another page element over an open chat window — a back-to-top button —
+   steps aside while the window is open (Parley.clearCorner). */
+[data-parley-covered] {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  transition: opacity .15s;
+}
+
 .Parley .pl-dock {
   position: fixed;
   right: 16px;
-  bottom: 0;
+  /* Above a bar across the bottom of the screen: Mobile Tab, a composer. */
+  bottom: var(--parley-bar, 0px);
   display: flex;
   align-items: flex-end;
   gap: 12px;
@@ -1191,8 +1201,8 @@
 .Parley.pl-messenger {
   display: grid;
   grid-template-columns: 340px minmax(0, 1fr);
-  height: ~"calc(100vh - var(--header-height, 56px) - 40px)";
-  height: ~"calc(100dvh - var(--header-height, 56px) - 40px)";
+  height: ~"calc(100vh - var(--header-height, 56px) - 40px - var(--parley-bar, 0px))";
+  height: ~"calc(100dvh - var(--header-height, 56px) - 40px - var(--parley-bar, 0px))";
   min-height: 480px;
   background: var(--pl-surface);
   border: 1px solid var(--pl-line);
@@ -1699,7 +1709,7 @@
   .Parley .pl-rail { width: 100%; border-left: 0; }
   /* A conversation fills the phone; the pill would sit on its composer. */
   .Parley.has-window .pl-peek, .Parley.has-window .pl-heads { display: none; }
-  .Parley .pl-dock { right: 0; left: 0; top: 0; bottom: 0; align-items: stretch; }
+  .Parley .pl-dock { right: 0; left: 0; top: 0; bottom: var(--parley-bar, 0px); align-items: stretch; }
   .Parley .pl-dock:empty { display: none; }
   .Parley .pl-win { display: none; width: 100%; height: 100%; border-radius: 0; border: 0; }
   .Parley .pl-win:last-child { display: flex; }
@@ -1715,8 +1725,8 @@
     grid-template-columns: minmax(0, 1fr);
     border: 0;
     border-radius: 0;
-    height: ~"calc(100vh - var(--header-height-phone, 46px))";
-    height: ~"calc(100dvh - var(--header-height-phone, 46px))";
+    height: ~"calc(100vh - var(--header-height-phone, 46px) - var(--parley-bar, 0px))";
+    height: ~"calc(100dvh - var(--header-height-phone, 46px) - var(--parley-bar, 0px))";
     min-height: 0;
 
     &.has-selected .pl-list { display: none; }
