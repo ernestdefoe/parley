@@ -23,6 +23,11 @@ class PeopleController extends Controller
     ) {
     }
 
+    private function db(): \Illuminate\Database\ConnectionInterface
+    {
+        return resolve(\Illuminate\Database\ConnectionInterface::class);
+    }
+
     protected function respond(ServerRequestInterface $request, User $actor): mixed
     {
         $this->member($actor);
@@ -38,7 +43,7 @@ class PeopleController extends Controller
         $users = User::query()->whereVisibleTo($actor)
             // Display names are worked out by a driver, not stored, so the
             // username is what can be searched.
-            ->where('users.username', 'like', $like)
+            ->where('users.username', $this->db()->getDriverName() === 'pgsql' ? 'ilike' : 'like', $like)
             ->where('users.id', '!=', $actor->id)
             ->with('groups')
             ->orderBy('users.username')

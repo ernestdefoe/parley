@@ -72,7 +72,9 @@ class Search
             ->whereIn('type', $type ? self::TYPES[$type] : Conversations::CONTENT);
 
         if ($words !== '') {
-            $q->where('body', 'like', '%'.addcslashes($words, '%_\\').'%');
+            // PostgreSQL's LIKE minds case; MySQL's and SQLite's do not.
+            $like = $this->db->getDriverName() === 'pgsql' ? 'ilike' : 'like';
+            $q->where('body', $like, '%'.addcslashes($words, '%_\\').'%');
         }
         if ($type === 'link') {
             $q->where(fn (Builder $w) => $w->where('body', 'like', '%http://%')->orWhere('body', 'like', '%https://%'));
