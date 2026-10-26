@@ -7,6 +7,7 @@ use Flarum\Foundation\ValidationException;
 use Flarum\Locale\TranslatorInterface;
 use Flarum\Settings\SettingsRepositoryInterface;
 use Illuminate\Contracts\Container\Container;
+use Intervention\Image\ImageManager;
 use Psr\Http\Message\UploadedFileInterface;
 
 /**
@@ -102,7 +103,8 @@ class Images
     public function __construct(
         protected Paths $paths,
         protected SettingsRepositoryInterface $settings,
-        protected TranslatorInterface $translator
+        protected TranslatorInterface $translator,
+        protected ImageManager $manager
     ) {
     }
 
@@ -158,6 +160,7 @@ class Images
                 @unlink($tmp);
                 $this->fail('not_an_image');
             }
+            $size = $this->stripMetadata($tmp, $ext) ?? $size;
             $meta += ['w' => (int) $size[0], 'h' => (int) $size[1]];
         }
 
@@ -184,6 +187,37 @@ class Images
         $meta['type'] = $type;
 
         return $meta;
+    }
+
+    /**
+     * 🚨 A phone's photo carries where it was taken. Re-encoding the picture
+     * keeps what it shows (turned the right way up) and drops everything
+     * else, so a conversation never hands out someone's location. A GIF is
+     * left as it is: re-encoding would stop it moving, and GIFs carry no
+     * camera data.
+     *
+     * @return array{0: int, 1: int}|null the new size, or null when left alone
+     */
+    private function stripMetadata(string $file, string $ext): ?array
+    {
+        if ($ext === 'gif') {
+            return null;
+        }
+
+        try {
+            $image = $this->manager->read($file);
+            $encoded = match ($ext) {
+                'png' => $image->toPng(),
+                'webp' => $image->toWebp(90),
+                default => $image->toJpeg(90),
+            };
+            file_put_contents($file, (string) $encoded);
+        } catch (\Throwable) {
+            @unlink($file);
+            $this->fail('not_an_image');
+        }
+
+        return [$image->width(), $image->height()];
     }
 
     /**

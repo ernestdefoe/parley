@@ -418,4 +418,27 @@ class Parley2Test extends TestCase
         [, $people] = $this->call('GET', '/api/parley/people', 2, [], ['q' => 'oth']);
         $this->assertFalse($online($people['people'])['other'], 'In people search');
     }
+
+    #[Test]
+    public function a_photo_loses_its_camera_data_and_location()
+    {
+        $img = imagecreatetruecolor(40, 30);
+        ob_start();
+        imagejpeg($img);
+        $jpeg = (string) ob_get_clean();
+        // An APP1 Exif block, as a phone writes one, straight after the start marker.
+        $exif = "Exif\0\0".str_pad('GPSLatitude 51.5074 N', 40, ' ');
+        $jpeg = substr($jpeg, 0, 2)."\xFF\xE1".pack('n', strlen($exif) + 2).$exif.substr($jpeg, 2);
+        $this->assertStringContainsString('GPSLatitude', $jpeg);
+
+        [$status, $body] = $this->upload(2, 1, $jpeg, 'holiday.jpg', 'image');
+        $this->assertSame(200, $status);
+        $this->assertSame([40, 30], [$body['message']['meta']['w'], $body['message']['meta']['h']]);
+
+        $response = $this->send($this->request('GET', '/api/parley/files/'.$body['message']['id'], ['authenticatedAs' => 3]));
+        $served = (string) $response->getBody();
+        $this->assertStringStartsWith("\xFF\xD8", $served, 'Still a JPEG');
+        $this->assertStringNotContainsString('GPSLatitude', $served);
+        $this->assertStringNotContainsString("Exif\0\0", $served);
+    }
 }
