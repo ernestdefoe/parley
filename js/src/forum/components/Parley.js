@@ -177,12 +177,13 @@ export default class Parley extends Component {
 
   view() {
     const s = app.parley;
-    const docked = s.railDocked();
-    const showRail = docked || s.railSheet;
-    // Wider than a phone, the open list is a panel floating over the page.
-    const floating = !docked && s.railSheet && !s.isMobile();
     // The inbox page draws conversations itself; the dock would repeat them.
     const onInbox = s.onInbox();
+    const docked = s.railDocked();
+    const showRail = docked || (s.railSheet && !onInbox);
+    // The open list is a panel popping up from the online button, on a
+    // phone too, where it spans the width above Mobile Tab's bar.
+    const floating = !docked && s.railSheet && !onInbox;
     const total = s.totalUnread();
 
     return (
@@ -204,7 +205,9 @@ export default class Parley extends Component {
             ))}
           </div>
         ) : null}
-        {!docked && !(s.railSheet && s.isMobile()) && !(onInbox && s.isMobile()) ? (
+        {/* Not on the messages page: there the messenger is the screen, and
+            the button would sit on its composer. */}
+        {!docked && !onInbox ? (
           <button
             className={'pl-peek' + (s.railSheet ? ' active' : '')}
             onclick={() => s.toggleRail()}

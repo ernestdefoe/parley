@@ -381,8 +381,19 @@
   &.off .pl-av { opacity: .6; }
 
   .pl-acts { display: none; gap: 2px; }
-  &:hover .pl-acts, &:focus-within .pl-acts { display: flex; }
-  &:hover .pl-unread, &:focus-within .pl-unread { display: none; }
+  &:focus-within .pl-acts { display: flex; }
+  &:focus-within .pl-unread { display: none; }
+
+  /* Hover only with a pointer that hovers: iOS spends a first tap on
+     hover, so the row would need two taps to open a conversation. On touch
+     the buttons are simply always there. */
+  @media (hover: hover) {
+    &:hover .pl-acts { display: flex; }
+    &:hover .pl-unread { display: none; }
+  }
+  @media (hover: none) {
+    .pl-acts { display: flex; }
+  }
 }
 .Parley .pl-rail-foot {
   border-top: 1px solid var(--pl-line);
@@ -1225,6 +1236,15 @@
   .pl-rail-foot { padding-bottom: 10px; }
 }
 .Parley.floating .pl-heads { display: none; }
+@media (max-width: 819px) {
+  .Parley.floating .pl-rail {
+    left: 8px;
+    right: 8px;
+    width: auto;
+    height: ~"min(70vh, calc(100dvh - 150px - var(--pl-lift, 0px)))";
+    border-left: 1px solid var(--pl-line);
+  }
+}
 @keyframes pl-pop {
   from { opacity: 0; transform: translateY(10px) scale(.96); }
   to { opacity: 1; transform: none; }

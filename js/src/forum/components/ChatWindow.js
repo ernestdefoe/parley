@@ -108,7 +108,15 @@ export default class ChatWindow extends Component {
         </div>
 
         {min ? null : body() ? (
-          [this.bodyTopItems(conv).toArray(), <Body.MessageList conv={conv} />, this.bottom(conv, { canPost, replying, editing, reporting, title })]
+          [
+            // 🚨 Its own wrapper: as bars come and go here (pins, search,
+            // a room's voice bar) the message list must keep its place,
+            // or Mithril rebuilds it and an open menu and the scroll
+            // position are lost.
+            <div className="pl-w-top">{this.bodyTopItems(conv).toArray()}</div>,
+            <Body.MessageList conv={conv} />,
+            this.bottom(conv, { canPost, replying, editing, reporting, title }),
+          ]
         ) : (
           <div className="pl-w-body pl-loading-body" aria-busy="true" />
         )}

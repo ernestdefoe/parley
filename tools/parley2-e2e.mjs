@@ -102,6 +102,7 @@ try {
 
   // 3. The one-tap like, and emoji from the picker.
   await admin.click('.pl-win.page .pl-like');
+
   ok('👍 sends in one tap', await until(admin, () => [...document.querySelectorAll('.pl-win.page .pl-bub.pl-big')].some((b) => b.textContent.includes('👍'))));
   await admin.click('.pl-win.page .pl-emoji-btn');
   await admin.waitForSelector('.pl-emoji-grid button');
@@ -161,17 +162,32 @@ try {
       const label = new RegExp(source);
       const row = [...document.querySelectorAll('.pl-win.page .pl-row')].reverse().find((r) => r.textContent.includes('Hello from the e2e run'));
       row.querySelector('.pl-more').click();
-      await new Promise((r) => setTimeout(r, 300));
-      const button = [...document.querySelectorAll('.pl-msg-menu button')].find((b) => label.test(b.textContent.trim()));
+      let button;
+      for (let i = 0; i < 40 && !button; i++) {
+        await new Promise((r) => setTimeout(r, 100));
+        button = [...document.querySelectorAll('.pl-msg-menu button')].find((b) => label.test(b.textContent.trim()));
+      }
+      if (!button) return 'NO BUTTON; menu: ' + [...document.querySelectorAll('.pl-msg-menu button')].map((b) => b.textContent.trim()).join('|') + '; rows: ' + document.querySelectorAll('.pl-win.page .pl-row').length + '; open trays: ' + document.querySelectorAll('.pl-react-tray.open').length;
       button.click();
       return button.textContent.trim();
     }, label.source);
   const pinned = await menu(/^(Pin|Unpin)$/);
-  if (pinned === 'Unpin') await menu(/^Pin$/);
+  // Left pinned by an earlier run: wait for the unpin to land before pinning again.
+  if (pinned === 'Unpin') {
+    await until(admin, () => ![...document.querySelectorAll('.pl-win.page .pl-row')].reverse().find((r) => r.textContent.includes('Hello from the e2e run'))?.querySelector('.pl-pinmark'));
+    await menu(/^Pin$/);
+  }
   ok('pinning shows the pinned bar', await until(admin, () => !!document.querySelector('.pl-pinbar')));
 
   // 8. Forward to ben.
-  await menu(/^Forward$/);
+  // The pin's reply redraws the conversation; a menu opened in that same
+  // instant can close again, as a person would see and click once more.
+  let fw = await menu(/^Forward$/);
+  for (let i = 0; i < 2 && fw !== 'Forward'; i++) {
+    await sleep(800);
+    fw = await menu(/^Forward$/);
+  }
+  if (fw !== 'Forward') errors.push('forward menu: ' + fw);
   await admin.waitForSelector('.ParleyForwardModal .pl-forward-row');
   await admin.evaluate(() => [...document.querySelectorAll('.pl-forward-row')].find((r) => r.textContent.toLowerCase().includes('ben')).click());
   const picked = await admin.$$eval('.pl-forward-row input:checked', (x) => x.length);
@@ -206,7 +222,8 @@ try {
   });
 
   // 11. A new group with chips, a name, then add and remove someone.
-  await admin.click('.pl-list-head button');
+  await admin.waitForSelector('.pl-list-head button');
+  await admin.evaluate(() => document.querySelector('.pl-list-head button').click());
   await admin.waitForSelector('#Parley-new-to');
   for (const name of ['ben', 'cara']) {
     await admin.type('#Parley-new-to', name);
