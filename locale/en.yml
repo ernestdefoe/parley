@@ -187,6 +187,7 @@ ernestdefoe-parley:
       load_more: Load more
       pick: Pick a conversation, or start a new one.
       no_access: Messages are not available on your account.
+      log_in_to_message: Log in to see your messages.
       you: You
       draft: "Draft:"
       options: Conversation options

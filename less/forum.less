@@ -106,7 +106,7 @@
     /* 🚨 The docked list sits UNDER the header, never beside it: a header
        narrowed by 300px left the nav no room and core's OverflowingList drew
        its links over the controls. */
-    .Parley .pl-rail { top: var(--header-height, 56px); z-index: 999; }
+    .Parley .pl-rail { top: var(--pl-top, var(--header-height, 56px)); z-index: 999; }
 
     /* 🚨 The composer bar, not the composer: `right` on .Composer slid it
        off the left edge instead of narrowing it. */
@@ -821,8 +821,21 @@
 }
 .Parley .pl-row.them .pl-react-tray { left: 36px; }
 .Parley .pl-row.me .pl-react-tray { right: 0; }
-.Parley .pl-row:hover .pl-react-tray,
-.Parley .pl-row:focus-within .pl-react-tray,
+/* Hover only where there is a pointer that hovers; on touch a long press
+   opens it (MessageList.press), and the phone's own callout keeps out. */
+@media (hover: hover) {
+  .Parley .pl-row:hover .pl-react-tray,
+  .Parley .pl-row:focus-within .pl-react-tray { display: flex; }
+}
+@media (hover: none) {
+  .Parley .pl-row .pl-bub { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+  /* iOS zooms the page into any field under 16px when it is focused. */
+  .Parley.Parley .pl-input-wrap textarea.FormControl,
+  .Parley.Parley .pl-findbar .FormControl,
+  .Parley.Parley .pl-list-search .FormControl,
+  .Parley.Parley .pl-search-filters .FormControl,
+  .Parley.Parley .pl-rename .FormControl { font-size: 16px; }
+}
 .Parley .pl-react-tray.open { display: flex; }
 
 .Parley .pl-msg-menu {
@@ -1009,7 +1022,7 @@
     border-radius: 18px;
     line-height: 1.45;
     font-size: 14px;
-    overflow-y: auto;
+    overflow-y: hidden;
     display: block;
   }
   .pl-emoji-btn {
@@ -1141,7 +1154,8 @@
     text-align: center;
     display: none;
   }
-  &:hover .pl-x, &:focus-visible .pl-x { display: block; }
+  &:focus-visible .pl-x { display: block; }
+  @media (hover: hover) { &:hover .pl-x { display: block; } }
 }
 .Parley .pl-peek {
   position: fixed;
@@ -1325,8 +1339,14 @@
   .Dropdown-toggle { background: var(--pl-surface) !important; box-shadow: 0 1px 4px var(--shadow-color); border-radius: 50% !important; width: 32px; height: 32px; }
   &.open { display: block; }
 }
-.Parley .pl-item:hover .pl-item-menu,
-.Parley .pl-item:focus-within .pl-item-menu { display: block; }
+@media (hover: hover) {
+  .Parley .pl-item:hover .pl-item-menu,
+  .Parley .pl-item:focus-within .pl-item-menu { display: block; }
+}
+@media (hover: none) {
+  .Parley .pl-item-menu { display: block; position: static; transform: none; }
+  .Parley .pl-item-menu .Dropdown-toggle { box-shadow: none !important; background: none !important; }
+}
 .Parley .pl-label-pick {
   display: flex;
   gap: 8px;
@@ -1376,6 +1396,13 @@
 }
 .Parley .pl-load-more { margin-top: 8px; }
 .Parley .pl-chat { display: flex; min-width: 0; min-height: 0; }
+.Parley.pl-noaccess {
+  text-align: center;
+  padding: 60px 16px;
+  color: var(--pl-muted);
+
+  > .icon { font-size: 40px; opacity: .35; }
+}
 .Parley .pl-pick {
   margin: auto;
   text-align: center;
@@ -1626,9 +1653,17 @@
 
 /* ── Narrow screens ────────────────────────────────────────────────────── */
 
-@media (max-width: 1279px) {
+/*
+ * The messenger sizes itself by its own width, not the window's: a theme's
+ * side columns can leave it much narrower than the screen. Narrow, the
+ * details column opens over the conversation; narrower still, the list and
+ * the conversation take turns, as on a phone.
+ */
+.pl-shell { container-type: inline-size; }
+.Parley.pl-messenger { position: relative; }
+@container (max-width: 1179px) {
   .Parley.pl-messenger.has-details {
-    grid-template-columns: 320px minmax(0, 1fr);
+    grid-template-columns: 300px minmax(0, 1fr);
 
     .pl-details {
       position: absolute;
@@ -1641,7 +1676,19 @@
       z-index: 5;
     }
   }
-  .Parley.pl-messenger { position: relative; }
+  .Parley.pl-messenger { grid-template-columns: 300px minmax(0, 1fr); }
+}
+@container (max-width: 699px) {
+  .Parley.pl-messenger,
+  .Parley.pl-messenger.has-details {
+    grid-template-columns: minmax(0, 1fr);
+
+    &.has-selected .pl-list { display: none; }
+    &:not(.has-selected) .pl-chat { display: none; }
+    .pl-list { border-right: 0; }
+    .pl-details { position: absolute; inset: 0; width: 100%; z-index: 5; box-shadow: none; }
+  }
+  .Parley .pl-win.page .pl-back { display: inline-grid; }
 }
 @media (max-width: 1199px) {
   .Parley .pl-rail { box-shadow: var(--pl-shadow); }

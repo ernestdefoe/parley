@@ -12,6 +12,9 @@ function grow(el) {
   if (!el) return;
   el.style.height = 'auto';
   el.style.height = el.scrollHeight + 'px';
+  // A scrollbar only once it has reached its full height: Android draws
+  // one on a single line that is a pixel short otherwise.
+  el.style.overflowY = el.scrollHeight > el.clientHeight + 2 ? 'auto' : 'hidden';
 }
 
 /** The @word being typed just before the caret, if any. */

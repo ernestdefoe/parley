@@ -25,6 +25,7 @@ export default class Parley extends Component {
       if (pending) return;
       pending = setTimeout(() => {
         pending = null;
+        this.clearHeader(vnode.dom);
         this.clearCorner(vnode.dom);
         // A theme fades its button in and out. Look again once the fade is
         // over, so a half-faded button neither keeps nor misses the lift.
@@ -74,6 +75,17 @@ export default class Parley extends Component {
     }
 
     root.style.setProperty('--pl-lift', Math.max(0, Math.round(lift)) + 'px');
+  }
+
+  /**
+   * Start the docked list where the theme's header ends. Themes draw headers
+   * of every height (Masthead's is two bars tall), and one that scrolls away
+   * leaves the top of the screen free again.
+   */
+  clearHeader(root) {
+    const header = document.getElementById('header');
+    const bottom = header ? Math.max(0, Math.round(header.getBoundingClientRect().bottom)) : null;
+    if (bottom !== null) root.style.setProperty('--pl-top', bottom + 'px');
   }
 
   onupdate(vnode) {

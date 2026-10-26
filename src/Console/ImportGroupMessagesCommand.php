@@ -99,7 +99,7 @@ class ImportGroupMessagesCommand extends AbstractCommand
                     ->whereIn('message_id', $rows->pluck('id')->all())->pluck('reply_to_id', 'message_id');
 
                 foreach ($rows as $row) {
-                    $body = trim((string) $this->formatter->unparse((string) $row->content));
+                    $body = $this->plain((string) $row->content);
                     if ($body === '') {
                         continue;
                     }
@@ -143,6 +143,28 @@ class ImportGroupMessagesCommand extends AbstractCommand
         $this->info(($dry ? 'Would import' : 'Imported')." $made new group(s) and $added message(s) from Group Messages.");
 
         return 0;
+    }
+
+    /**
+     * What a formatted message says, as Parley shows it: plain text. Its
+     * markup (bold, quotes, lists) would show as asterisks and angle brackets,
+     * so the message is rendered and read back as text; a link keeps its
+     * address, which Parley makes clickable again.
+     */
+    private function plain(string $xml): string
+    {
+        $html = $this->formatter->render($xml);
+
+        $html = (string) preg_replace_callback('~<a\s[^>]*href="([^"]+)"[^>]*>(.*?)</a>~is', function ($m) {
+            $url = html_entity_decode($m[1], ENT_QUOTES | ENT_HTML5);
+            $text = trim(strip_tags($m[2]));
+
+            return $text === '' || html_entity_decode($text, ENT_QUOTES | ENT_HTML5) === $url ? $url : "$text ($url)";
+        }, $html);
+        $html = (string) preg_replace(['~<br\s*/?>~i', '~</(p|div|li|blockquote|h[1-6])>~i'], ["\n", "\n\n"], $html);
+        $text = html_entity_decode(strip_tags($html), ENT_QUOTES | ENT_HTML5);
+
+        return trim((string) preg_replace("~\n{3,}~", "\n\n", $text));
     }
 
     /**

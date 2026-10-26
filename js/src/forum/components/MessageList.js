@@ -144,6 +144,10 @@ export default class MessageList extends Component {
           className={`pl-row ${who} ${pos === 'single' ? '' : pos} ${pos === 'first' || pos === 'single' ? 'gap' : ''}${msg.pending ? ' pending' : ''}`}
           data-id={msg.id}
           title={msg.pending ? '' : new Date(msg.createdAt).toLocaleString()}
+          onpointerdown={(e) => this.press(e, msg)}
+          onpointerup={() => clearTimeout(this.pressTimer)}
+          onpointercancel={() => clearTimeout(this.pressTimer)}
+          onpointermove={(e) => this.pressMoved(e)}
         >
           {!mine ? endsRun ? Avatar(author, 28) : <span className="pl-sp" /> : null}
           <div className="pl-stackcol">
@@ -208,6 +212,38 @@ export default class MessageList extends Component {
         {out}
       </div>
     );
+  }
+
+  /**
+   * On a touch screen the tray opens with a long press, as in a phone's own
+   * messenger: there is no hover, and iOS spends a first tap on hover, so a
+   * tray shown on hover would swallow the tap meant for Play or a link.
+   */
+  press(e, msg) {
+    e.redraw = false;
+    if (e.pointerType !== 'touch' || msg.deleted || msg.pending) return;
+    this.pressAt = [e.clientX, e.clientY];
+    clearTimeout(this.pressTimer);
+    this.pressTimer = setTimeout(() => {
+      this.trayFor = msg.id;
+      this.menuFor = null;
+      navigator.vibrate?.(10);
+      m.redraw();
+      const away = (ev) => {
+        if (ev.target.closest && ev.target.closest('.pl-react-tray')) return;
+        this.trayFor = null;
+        this.menuFor = null;
+        document.removeEventListener('pointerdown', away, true);
+        m.redraw();
+      };
+      document.addEventListener('pointerdown', away, true);
+    }, 450);
+  }
+
+  pressMoved(e) {
+    e.redraw = false;
+    if (!this.pressAt) return;
+    if (Math.abs(e.clientX - this.pressAt[0]) + Math.abs(e.clientY - this.pressAt[1]) > 10) clearTimeout(this.pressTimer);
   }
 
   scrolled(e) {
@@ -373,9 +409,15 @@ export default class MessageList extends Component {
     const menuOpen = this.menuFor === msg.id;
 
     return (
-      <div className={'pl-react-tray' + (menuOpen ? ' open' : '')} role="group" aria-label={extractText(t('react'))}>
+      <div className={'pl-react-tray' + (menuOpen || this.trayFor === msg.id ? ' open' : '')} role="group" aria-label={extractText(t('react'))}>
         {(s.config.reactions || []).map((e) => (
-          <button aria-label={e} onclick={() => s.react(msg.id, e)}>
+          <button
+            aria-label={e}
+            onclick={() => {
+              s.react(msg.id, e);
+              this.trayFor = null;
+            }}
+          >
             {e}
           </button>
         ))}

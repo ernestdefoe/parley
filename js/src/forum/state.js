@@ -482,7 +482,11 @@ export default class ParleyState {
         this.markRead(id);
         m.redraw();
       })
-      .catch(() => this.close(id));
+      .catch(() => {
+        this.close(id);
+        // Gone, or never yours: the messages page goes back to the list.
+        if (this.pageConversation === Number(id)) m.route.set(app.route('parley.inbox'));
+      });
   }
 
   /** Open the conversation with a person: click their row, their card, anything. */

@@ -44,7 +44,8 @@ export default class InboxPage extends Page {
     } catch (e) {
       // No storage: the default stands.
     }
-    this.details = saved === null ? window.innerWidth >= 1600 : saved === '1';
+    // null: not chosen yet, so it opens where there is room for it.
+    this.details = saved === null ? null : saved === '1';
     this.selected = Number(m.route.param('id')) || null;
 
     app.setTitle(extractText(t('title')));
@@ -116,7 +117,19 @@ export default class InboxPage extends Page {
       return (
         <div className="ParleyPage">
           <div className="container">
-            <p className="pl-guests">{t('no_access')}</p>
+            <div className="Parley pl-noaccess">
+              {Icons.msg()}
+              {app.session.user ? (
+                <p>{t('no_access')}</p>
+              ) : (
+                [
+                  <p>{t('log_in_to_message')}</p>,
+                  <Button className="Button Button--primary" onclick={() => app.modal.show(() => import('flarum/forum/components/LogInModal'))}>
+                    {app.translator.trans('core.forum.header.log_in_link')}
+                  </Button>,
+                ]
+              )}
+            </div>
           </div>
         </div>
       );
@@ -124,37 +137,42 @@ export default class InboxPage extends Page {
 
     const s = app.parley;
     const open = this.selected && s.conv(this.selected);
-    const showDetails = this.details && open;
+    // Room is measured on the messenger itself: a theme's own side columns
+    // can leave it far narrower than the window.
+    const roomy = (this.width || 0) >= 1180;
+    const showDetails = (this.details === null ? roomy : this.details) && open;
 
     return (
       <div className="ParleyPage">
         <div className="container">
-          <div className={'Parley pl-messenger' + (this.selected ? ' has-selected' : '') + (showDetails ? ' has-details' : '')}>
-            <aside className="pl-list">{this.listColumn()}</aside>
-            <main className="pl-chat">
-              {this.selected ? (
-                <ChatWindow
-                  key={this.selected}
-                  id={this.selected}
-                  page={true}
-                  detailsOpen={showDetails}
-                  ondetails={() => this.toggleDetails()}
-                  onback={() => m.route.set(app.route('parley.inbox'))}
-                />
-              ) : (
-                <div className="pl-pick">
-                  {Icons.msg()}
-                  <p>{t('pick')}</p>
-                  <Button className="Button Button--primary" icon="fas fa-pen-to-square" onclick={() => this.compose()}>
-                    {t('new_message')}
-                  </Button>
-                </div>
-              )}
-            </main>
-            {/* 🚨 Its own wrapper: a keyed child beside unkeyed ones, or a
+          <div className="pl-shell" oncreate={(v) => this.measure(v.dom)} onupdate={(v) => this.measure(v.dom)}>
+            <div className={'Parley pl-messenger' + (this.selected ? ' has-selected' : '') + (showDetails ? ' has-details' : '')}>
+              <aside className="pl-list">{this.listColumn()}</aside>
+              <main className="pl-chat">
+                {this.selected ? (
+                  <ChatWindow
+                    key={this.selected}
+                    id={this.selected}
+                    page={true}
+                    detailsOpen={showDetails}
+                    ondetails={() => this.toggleDetails()}
+                    onback={() => m.route.set(app.route('parley.inbox'))}
+                  />
+                ) : (
+                  <div className="pl-pick">
+                    {Icons.msg()}
+                    <p>{t('pick')}</p>
+                    <Button className="Button Button--primary" icon="fas fa-pen-to-square" onclick={() => this.compose()}>
+                      {t('new_message')}
+                    </Button>
+                  </div>
+                )}
+              </main>
+              {/* 🚨 Its own wrapper: a keyed child beside unkeyed ones, or a
                 null hole in a keyed list, is the Mithril mixed-keys throw. */}
-            <div className="pl-details-slot">
-              {showDetails ? <Details key={'d' + this.selected} id={this.selected} onclose={() => this.toggleDetails()} /> : null}
+              <div className="pl-details-slot">
+                {showDetails ? <Details key={'d' + this.selected} id={this.selected} onclose={() => this.toggleDetails(false)} /> : null}
+              </div>
             </div>
           </div>
         </div>
@@ -162,8 +180,17 @@ export default class InboxPage extends Page {
     );
   }
 
-  toggleDetails() {
-    this.details = !this.details;
+  measure(el) {
+    const width = el.clientWidth;
+    if (width !== this.width) {
+      this.width = width;
+      // Measured after a draw: draw again only when the answer changed.
+      setTimeout(m.redraw, 0);
+    }
+  }
+
+  toggleDetails(open) {
+    this.details = open ?? !(this.details === null ? (this.width || 0) >= 1180 : this.details);
     try {
       localStorage.setItem('parley:details', this.details ? '1' : '0');
     } catch (e) {
