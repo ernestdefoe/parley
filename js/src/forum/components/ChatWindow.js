@@ -104,7 +104,7 @@ export default class ChatWindow extends Component {
             <div className="pl-nm">{title}</div>
             <div className="pl-st">{status}</div>
           </div>
-          {this.headerItems(conv, live).toArray()}
+          {this.headerRows(conv, live, page)}
         </div>
 
         {min ? null : body() ? (
@@ -150,6 +150,28 @@ export default class ChatWindow extends Component {
         <div className="pl-readonly">{app.translator.trans('ernestdefoe-parley.forum.rooms.readonly_note')}</div>
       ),
     ];
+  }
+
+  /**
+   * A mini window is narrow: with Calls' two buttons, search and expand
+   * beside minimise and close, the name was cut to a few letters. So the
+   * window's own controls stay on the name's row and every other button
+   * sits on a row of its own under the name. The messages page has the
+   * room for one row.
+   */
+  headerRows(conv, live, page) {
+    const items = this.headerItems(conv, live);
+    if (page) return items.toArray();
+
+    const controls = new ItemList();
+    ['minimise', 'close'].forEach((key) => {
+      if (items.has(key)) {
+        controls.add(key, items.get(key), items.getPriority(key));
+        items.remove(key);
+      }
+    });
+
+    return [items.isEmpty() ? null : <div className="pl-w-actions">{items.toArray()}</div>, controls.toArray()];
   }
 
   /**

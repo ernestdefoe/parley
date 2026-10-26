@@ -536,6 +536,25 @@
   .pl-ib { width: 32px; height: 32px; color: var(--pl-accent); }
   .pl-ib[data-item="minimise"], .pl-ib[data-item="close"], .pl-ib[data-item="expand"] { color: var(--pl-muted); }
 }
+/* A mini window's second header row: Calls, search and expand under the
+   name, so the name keeps the first row's width. */
+.Parley .pl-win:not(.page) .pl-w-head {
+  flex-wrap: wrap;
+  row-gap: 0;
+  padding-bottom: 4px;
+}
+.Parley .pl-w-actions {
+  order: 3;
+  flex-basis: 100%;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-left: 37px;
+  margin-top: -2px;
+
+  .pl-ib { width: 30px; height: 30px; font-size: 14px; }
+}
+.Parley .pl-win.min .pl-w-actions { display: none; }
 .Parley .pl-skel {
   display: block;
   height: 32px;
