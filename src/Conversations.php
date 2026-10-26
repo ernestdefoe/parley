@@ -379,7 +379,8 @@ class Conversations
 
     /**
      * Requests waiting for one person, and the conversations they have muted
-     * that have something unread — the heartbeat's two quiet counts.
+     * or archived that have something unread — news that neither pops up
+     * nor counts on the badge.
      *
      * @return array{requests: int, quiet: int[]}
      */
@@ -393,7 +394,7 @@ class Conversations
 
         $quiet = array_keys(array_filter($unread));
         $quiet = $quiet === [] ? [] : $this->db->table('parley_participants')->where('user_id', $userId)
-            ->whereIn('conversation_id', $quiet)->where('muted', true)
+            ->whereIn('conversation_id', $quiet)->where(fn ($q) => $q->where('muted', true)->orWhereNotNull('archived_at'))
             ->pluck('conversation_id')->map(fn ($id) => (int) $id)->all();
 
         return ['requests' => $requests, 'quiet' => $quiet];

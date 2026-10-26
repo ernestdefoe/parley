@@ -18,6 +18,9 @@ use Flarum\Extend;
 return [
     (new Extend\Frontend('forum'))
         ->js(__DIR__.'/js/dist/forum.js')
+        // The messages page, the conversation body, the emoji picker, the
+        // recorder and the modals: chunks fetched when first used.
+        ->jsDirectory(__DIR__.'/js/dist/forum')
         ->css(__DIR__.'/less/forum.less')
         ->route('/parley', 'parley.inbox')
         ->route('/parley/{id:\d+}', 'parley.conversation'),

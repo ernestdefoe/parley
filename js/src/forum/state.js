@@ -9,6 +9,8 @@ const PRESENCE_MIN_GAP = 10000;
 const TYPING_TTL = 6000;
 const TYPING_SEND_EVERY = 3000;
 const MAX_HEADS = 6;
+/** How long a queued message waits before trying again, growing to the last. */
+const RETRY_STEPS = [2000, 4000, 8000, 15000, 30000];
 /** How long after you last used a room you still count as chatting in it. */
 const ROOM_ACTIVE_MS = 3 * 60 * 1000;
 export const RAIL_WIDTH = 300;
@@ -49,6 +51,15 @@ export default class ParleyState {
     /** id → { summary, messages, hasOlder, loadingOlder, typing: {userId: until} } */
     this.convs = new Map();
     this.unread = {};
+    /** Message requests waiting, and muted conversations with news: quiet counts. */
+    this.requests = 0;
+    this.quiet = new Set();
+    /** Unsent words per conversation, kept across reloads. */
+    this.drafts = {};
+    /** Messages on their way: sent, retrying through a dropped connection, or refused. */
+    this.queue = [];
+    /** A group's members, fetched with its details, for @mentions and the details column. */
+    this.members = {};
     this.open = [];
     this.heads = [];
     this.minimised = new Set();
@@ -74,6 +85,7 @@ export default class ParleyState {
     this.callsInstalled = false;
 
     this.restore();
+    this.restoreDrafts();
   }
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────
@@ -96,6 +108,9 @@ export default class ParleyState {
     [...this.open, ...this.heads].forEach((id) => this.load(id));
 
     window.addEventListener('resize', () => this.fit());
+    // Back online: everything waiting goes now, not at its next retry.
+    window.addEventListener('online', () => this.flushQueue(true));
+    this.restoreQueue();
     window.addEventListener('pagehide', () => api.leave());
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible' && this.presenceStale) {
@@ -195,6 +210,8 @@ export default class ParleyState {
       this.more = r.more || 0;
       this.guests = r.guests || 0;
       this.rooms = r.rooms || [];
+      this.requests = r.requests || 0;
+      this.quiet = new Set(r.quiet || []);
       this.loaded = true;
       // Keep the open conferences' team lists as fresh as the rest.
       this.expanded.forEach((id) => this.loadChildren(id));
@@ -268,7 +285,9 @@ export default class ParleyState {
       // Here, not at start: the socket exists once this fires, and it fires
       // again after every reconnect with a fresh socket to subscribe on.
       subscribePublic();
-      channel.bind('parley.message', (d) => this.received(d.message));
+      channel.bind('parley.message', (d) => this.received(d.message, d.request));
+      channel.bind('parley.conversationChanged', (d) => this.refresh(d.conversationId));
+      channel.bind('parley.removed', (d) => this.forget(d.conversationId));
       channel.bind('parley.messageChanged', (d) => this.changed(d.message));
       channel.bind('parley.read', (d) => this.readBy(d));
       channel.bind('parley.typing', (d) => this.typingFrom(d));
@@ -400,19 +419,65 @@ export default class ParleyState {
     const existing = this.convs.get(id);
     if (existing) {
       existing.summary = summary;
-      if (messages) existing.messages = messages;
+      if (messages) {
+        existing.messages = messages;
+        existing.loaded = true;
+      }
       return existing;
     }
-    const c = { summary, messages: messages || [], hasOlder: (messages || []).length >= 40, loadingOlder: false, typing: {} };
+    // A summary from a list carries no messages: `loaded` says whether the
+    // conversation itself has been fetched yet.
+    const c = { summary, messages: messages || [], loaded: !!messages, hasOlder: (messages || []).length >= 40, loadingOlder: false, typing: {} };
+    // Where "New messages" goes: after what was read before this visit.
+    c.newFrom = summary.lastReadMessageId || 0;
     this.convs.set(id, c);
     return c;
   }
 
-  load(id) {
+  /** A conversation changed somewhere else — another tab filed or accepted it. */
+  refresh(id) {
+    if (!this.conv(id)) return;
+    api.show(id, { latest: 1 }).then((r) => {
+      if (!r) return;
+      const c = this.conv(id);
+      if (c) c.summary = r.conversation;
+      this.listChanged();
+    });
+  }
+
+  /** Gone from a group, or the group is gone. */
+  forget(id) {
+    id = Number(id);
+    this.close(id);
+    this.convs.delete(id);
+    delete this.unread[id];
+    if (this.pageConversation === id) m.route.set(app.route('parley.inbox'));
+    this.listChanged();
+  }
+
+  /** The inbox page listens for this to redraw its list from the server. */
+  listChanged() {
+    this.listVersion = (this.listVersion || 0) + 1;
+    m.redraw();
+  }
+
+  load(id, params = {}) {
     return api
-      .show(id)
+      .show(id, params)
       .then((r) => {
-        this.ensure(r.conversation, r.messages);
+        const c = this.ensure(r.conversation, r.messages);
+        // Jumping to a search result or a pin replaces what is drawn, so it
+        // lands in place; the newest messages are a button away.
+        if (params.around) {
+          const last = r.messages[r.messages.length - 1];
+          c.hasOlder = true;
+          c.jumpTo = Number(params.around);
+          c.gapAfter = !!last && last.id < (r.conversation.lastMessage?.id || 0);
+        } else {
+          c.gapAfter = false;
+          c.hasOlder = r.messages.length >= 40;
+        }
+        this.redrawPending(id);
         this.unread[id] = r.conversation.unread;
         this.markRead(id);
         m.redraw();
@@ -431,8 +496,35 @@ export default class ParleyState {
     });
   }
 
+  /** Open a conversation full size, on the inbox page. */
+  expand(id) {
+    id = Number(id);
+    this.close(id);
+    m.route.set(app.route('parley.conversation', { id }));
+  }
+
+  /** Open a conversation on the messages page, at a message when one is given. */
+  openAt(id, messageId) {
+    this.jumpNext = messageId ? { id: Number(id), around: Number(messageId) } : null;
+    m.route.set(app.route('parley.conversation', { id }));
+  }
+
+  /** What the messages page does when a conversation is selected. */
+  select(id) {
+    const jump = this.jumpNext && this.jumpNext.id === Number(id) ? this.jumpNext : null;
+    this.jumpNext = null;
+    if (jump) return this.load(id, { around: jump.around });
+    if (this.conv(id) && this.conv(id).loaded) return this.markRead(id);
+    return this.load(id);
+  }
+
   show(id) {
     id = Number(id);
+    // On the inbox page the conversation opens there, not in a window over it.
+    if (this.onInbox()) {
+      m.route.set(app.route('parley.conversation', { id }));
+      return;
+    }
     this.heads = this.heads.filter((h) => h !== id);
     this.minimised.delete(id);
     if (!this.open.includes(id)) {
@@ -444,7 +536,7 @@ export default class ParleyState {
     this.markRead(id);
     this.save();
     m.redraw();
-    if (!this.conv(id)) this.load(id);
+    if (!this.conv(id) || !this.conv(id).loaded) this.load(id);
     setTimeout(() => document.getElementById(`Parley-input-${id}`)?.focus(), 0);
   }
 
@@ -489,7 +581,7 @@ export default class ParleyState {
 
   isVisible(id) {
     id = Number(id);
-    if (document.visibilityState !== 'visible') return false;
+    if (typeof document === 'undefined' || document.visibilityState !== 'visible') return false;
     // Open in the inbox page counts as being read, the same as a docked window.
     if (this.pageConversation === id) return true;
     return this.open.includes(id) && !this.minimised.has(id);
@@ -509,7 +601,7 @@ export default class ParleyState {
 
   // ── Messages in ───────────────────────────────────────────────────────────
 
-  received(message) {
+  received(message, request = false) {
     this.remember([message]);
     const id = message.conversationId;
     const c = this.conv(id);
@@ -518,23 +610,39 @@ export default class ParleyState {
       // A conversation this tab has not seen yet: fetch it, then show it.
       api.show(id).then((r) => {
         this.ensure(r.conversation, r.messages);
-        this.arrived(id, message);
+        this.arrived(id, message, request || r.conversation.request);
+        this.listChanged();
       });
       return;
     }
 
+    // Our own message coming back: it replaces the one drawn while sending.
+    if (message.nonce) {
+      c.messages = c.messages.filter((x) => x.nonce !== message.nonce || !x.pending);
+      this.queue = this.queue.filter((q) => q.nonce !== message.nonce);
+    }
+
     if (!c.messages.some((x) => x.id === message.id)) {
       c.messages.push(message);
-      c.messages.sort((a, b) => a.id - b.id);
+      c.messages.sort((a, b) => (a.pending ? 1 : 0) - (b.pending ? 1 : 0) || a.id - b.id);
     }
+    if (request) c.summary.request = true;
     c.summary.lastMessage = message;
     c.summary.lastMessageAt = message.createdAt;
     if (message.userId) delete c.typing[message.userId];
-    this.arrived(id, message);
+    this.arrived(id, message, request || c.summary.request);
+    this.listChanged();
   }
 
-  arrived(id, message) {
+  arrived(id, message, request = false) {
     const mine = message.userId === Number(this.me.id());
+
+    // A request is filed quietly: no head, no flash, no count on the badge.
+    if (request && !mine) {
+      if (!this.isVisible(id)) this.requests = Math.max(this.requests, 1);
+      m.redraw();
+      return;
+    }
 
     if (!mine) {
       if (this.isVisible(id)) {
@@ -544,7 +652,14 @@ export default class ParleyState {
         // Messenger brings the conversation forward as a head. Busy keeps it
         // quiet: the badge still counts, nothing pops. A room never pops: it
         // counts in the list, it does not interrupt.
-        if (!this.isRoom(id) && !this.open.includes(id) && !this.heads.includes(id) && this.status !== 'busy') {
+        if (
+          !this.isRoom(id) &&
+          !this.isMuted(id) &&
+          !this.onInbox() &&
+          !this.open.includes(id) &&
+          !this.heads.includes(id) &&
+          this.status !== 'busy'
+        ) {
           this.heads.unshift(id);
           this.heads = this.heads.slice(0, MAX_HEADS);
           this.save();
@@ -604,7 +719,16 @@ export default class ParleyState {
     for (const key in map) {
       const id = Number(key);
       const n = map[key];
-      if (n > 0 && !this.isRoom(id) && !this.isVisible(id) && !this.open.includes(id) && !this.heads.includes(id) && this.status !== 'busy') {
+      if (
+        n > 0 &&
+        !this.isRoom(id) &&
+        !this.quiet.has(id) &&
+        !this.onInbox() &&
+        !this.isVisible(id) &&
+        !this.open.includes(id) &&
+        !this.heads.includes(id) &&
+        this.status !== 'busy'
+      ) {
         this.heads.push(id);
         if (!this.conv(id)) this.load(id);
       }
@@ -615,7 +739,7 @@ export default class ParleyState {
       if (map[r.id] !== undefined) r.unread = map[r.id];
     });
     // Anything open and in view is being read, whatever the server counted.
-    this.open.forEach((id) => this.isVisible(id) && (this.unread[id] = 0));
+    [...this.open, this.pageConversation].forEach((id) => id && this.isVisible(id) && (this.unread[id] = 0));
     this.heads = this.heads.slice(0, MAX_HEADS);
   }
 
@@ -637,7 +761,7 @@ export default class ParleyState {
         r.messages.forEach((msg) => {
           const i = c.messages.findIndex((x) => x.id === msg.id);
           if (i >= 0) c.messages[i] = msg;
-          else this.received(msg);
+          else this.received(msg, r.conversation.request);
         });
         m.redraw();
       });
@@ -654,22 +778,278 @@ export default class ParleyState {
     return this.online.length + (this.more || 0) + (this.status === 'invisible' ? 0 : 1);
   }
 
-  /** Direct messages only: a busy room should not shout from the pill. */
+  /** Direct messages only: a busy room should not shout from the pill, nor a muted chat. */
   totalUnread() {
-    return Object.entries(this.unread).reduce((a, [id, n]) => a + (this.isRoom(id) ? 0 : n || 0), 0);
+    return Object.entries(this.unread).reduce((a, [id, n]) => a + (this.isRoom(id) || this.isMuted(id) ? 0 : n || 0), 0);
+  }
+
+  /** Muted or archived: news that neither pops up nor counts on the badge. */
+  isMuted(id) {
+    id = Number(id);
+    const c = this.conv(id);
+    return c ? !!(c.summary.muted || c.summary.archived) : this.quiet.has(id);
+  }
+
+  onInbox() {
+    return !!(app.current && app.current.get && app.current.get('routeName') && String(app.current.get('routeName')).startsWith('parley.'));
   }
 
   // ── Messages out ──────────────────────────────────────────────────────────
 
+  /**
+   * Send a message. It is drawn at once, greyed, and goes through the queue:
+   * a dropped connection retries it with the same nonce (the server answers
+   * a repeat with the message it already made), and a refusal leaves it
+   * marked, with Retry and Delete, instead of losing the words.
+   */
   send(id, body) {
+    id = Number(id);
     this.touchRoom(id);
     const replyTo = this.replyTo[id];
     delete this.replyTo[id];
-    return api.send(id, body, replyTo ? replyTo.id : null).then((r) => this.received(r.message));
+    this.setDraft(id, '');
+
+    const item = { nonce: nonce(), conversationId: id, body, replyToId: replyTo ? replyTo.id : null, tries: 0, state: 'sending' };
+    this.queue.push(item);
+    this.drawPending(item, replyTo);
+    this.saveQueue();
+    return this.attempt(item);
   }
 
-  upload(id, file) {
-    return api.upload(id, file).then((r) => this.received(r.message));
+  /** The greyed bubble of a message on its way. */
+  drawPending(item, replyTo = null) {
+    const c = this.conv(item.conversationId);
+    if (!c || c.messages.some((x) => x.nonce === item.nonce)) return;
+    c.messages.push({
+      id: Number.MAX_SAFE_INTEGER - this.queue.indexOf(item),
+      nonce: item.nonce,
+      pending: true,
+      failed: item.state === 'failed',
+      conversationId: item.conversationId,
+      userId: Number(this.me.id()),
+      type: 'text',
+      body: item.body,
+      replyTo: replyTo ? { id: replyTo.id, excerpt: replyTo.body, type: replyTo.type } : null,
+      reactions: [],
+      createdAt: new Date().toISOString(),
+    });
+    m.redraw();
+  }
+
+  attempt(item) {
+    item.state = 'sending';
+    this.markPending(item);
+    return api.send(item.conversationId, item.body, item.replyToId, item.nonce).then(
+      (r) => {
+        this.queue = this.queue.filter((q) => q !== item);
+        this.saveQueue();
+        this.received(r.message);
+      },
+      (error) => {
+        // No answer, or the server was having a moment: try again. Anything
+        // else is the server saying no, which trying again will not change.
+        const transient = !error || !error.status || error.status >= 500 || error.status === 429;
+        item.tries++;
+        if (transient) {
+          item.state = 'waiting';
+          clearTimeout(item.timer);
+          item.timer = setTimeout(() => this.attempt(item), RETRY_STEPS[Math.min(item.tries - 1, RETRY_STEPS.length - 1)]);
+        } else {
+          item.state = 'failed';
+          item.error = error.alert && error.alert.content;
+        }
+        this.markPending(item);
+        this.saveQueue();
+      }
+    );
+  }
+
+  markPending(item) {
+    const c = this.conv(item.conversationId);
+    const msg = c && c.messages.find((x) => x.nonce === item.nonce && x.pending);
+    if (msg) {
+      msg.failed = item.state === 'failed';
+      msg.waiting = item.state === 'waiting';
+      msg.error = item.error || null;
+    }
+    m.redraw();
+  }
+
+  retry(nonceValue) {
+    const item = this.queue.find((q) => q.nonce === nonceValue);
+    if (item) this.attempt(item);
+  }
+
+  discard(nonceValue) {
+    const item = this.queue.find((q) => q.nonce === nonceValue);
+    if (item) clearTimeout(item.timer);
+    this.queue = this.queue.filter((q) => q.nonce !== nonceValue);
+    this.convs.forEach((c) => (c.messages = c.messages.filter((x) => x.nonce !== nonceValue || !x.pending)));
+    this.saveQueue();
+    m.redraw();
+  }
+
+  flushQueue(now) {
+    this.queue
+      .filter((q) => q.state === 'waiting')
+      .forEach((q) => {
+        clearTimeout(q.timer);
+        if (now) this.attempt(q);
+      });
+  }
+
+  saveQueue() {
+    try {
+      const keep = this.queue.map(({ nonce, conversationId, body, replyToId, state }) => ({ nonce, conversationId, body, replyToId, state }));
+      localStorage.setItem(this.key() + ':queue', JSON.stringify(keep));
+    } catch (e) {
+      // No storage: the queue still works for this page.
+    }
+  }
+
+  /** Messages still on their way when the page was closed go on their way again. */
+  restoreQueue() {
+    let saved = [];
+    try {
+      saved = JSON.parse(localStorage.getItem(this.key() + ':queue') || '[]');
+    } catch (e) {
+      // Nothing saved.
+    }
+    saved.forEach((q) => {
+      const item = { ...q, tries: 0, state: q.state === 'failed' ? 'failed' : 'waiting' };
+      this.queue.push(item);
+      const draw = () => this.drawPending(item);
+      this.conv(item.conversationId) ? draw() : this.load(item.conversationId).then(draw);
+      if (item.state !== 'failed') this.attempt(item);
+    });
+  }
+
+  /** Pending messages drawn again after a conversation is fetched afresh. */
+  redrawPending(id) {
+    this.queue.filter((q) => q.conversationId === Number(id)).forEach((q) => this.drawPending(q));
+  }
+
+  /**
+   * A picture, video, voice note or file. Not queued — a file cannot be kept
+   * across a reload — but it reports its progress on the conversation.
+   */
+  upload(id, file, kind, extra = {}) {
+    const c = this.conv(id);
+    if (c) c.uploading = { name: file.name || '', progress: 0 };
+    m.redraw();
+    const done = () => {
+      if (c) c.uploading = null;
+      m.redraw();
+    };
+    return api
+      .upload(id, file, kind, { ...extra, nonce: nonce() }, (p) => {
+        if (c && c.uploading) {
+          c.uploading.progress = p;
+          m.redraw();
+        }
+      })
+      .then(
+        (r) => {
+          done();
+          this.received(r.message);
+        },
+        (error) => {
+          done();
+          app.alerts.show({ type: 'error' }, (error && error.alert && error.alert.content) || app.translator.trans('core.lib.error.generic_message'));
+        }
+      );
+  }
+
+  // ── Drafts ────────────────────────────────────────────────────────────────
+
+  setDraft(id, text) {
+    id = Number(id);
+    if (text && text.trim()) this.drafts[id] = text;
+    else delete this.drafts[id];
+    clearTimeout(this.draftTimer);
+    this.draftTimer = setTimeout(() => {
+      try {
+        localStorage.setItem(this.key() + ':drafts', JSON.stringify(this.drafts));
+      } catch (e) {
+        // Drafts are a convenience; without storage they last the page.
+      }
+    }, 400);
+  }
+
+  restoreDrafts() {
+    try {
+      this.drafts = JSON.parse(localStorage.getItem(this.key() + ':drafts') || '{}') || {};
+    } catch (e) {
+      this.drafts = {};
+    }
+  }
+
+  // ── Filing ────────────────────────────────────────────────────────────────
+
+  /** Mute, archive, star or label, drawn at once and saved behind. */
+  file(id, changes) {
+    const c = this.conv(id);
+    if (c) {
+      if ('muted' in changes) c.summary.muted = changes.muted;
+      if ('archived' in changes) c.summary.archived = changes.archived;
+      if ('starred' in changes) c.summary.starred = changes.starred;
+      if ('label' in changes) c.summary.label = changes.label;
+    }
+    if ('muted' in changes) changes.muted ? this.quiet.add(Number(id)) : this.quiet.delete(Number(id));
+    m.redraw();
+    return api.settings(id, changes).then(() => this.listChanged());
+  }
+
+  accept(id) {
+    return api.accept(id).then(() => {
+      const c = this.conv(id);
+      if (c) c.summary.request = false;
+      this.requests = Math.max(0, this.requests - 1);
+      this.listChanged();
+      this.beat();
+    });
+  }
+
+  /** Pin or unpin a message for everyone in the conversation. */
+  pin(messageId, on) {
+    return api.pin(messageId, on).then((r) => {
+      this.changed(r.message);
+      const c = this.conv(r.message.conversationId);
+      if (c) {
+        c.summary.pinCount = Math.max(0, (c.summary.pinCount || 0) + (on ? 1 : -1));
+        c.pins = null;
+      }
+    });
+  }
+
+  forward(messageId, conversationIds) {
+    return api.forward(messageId, conversationIds).then((r) => {
+      r.messages.forEach((msg) => this.received(msg));
+      return r.messages;
+    });
+  }
+
+  /** A new group: drawn and opened as soon as the server has it. */
+  createGroup(userIds, name) {
+    return api.createGroup(userIds, name).then((r) => {
+      this.ensure(r.conversation, r.messages);
+      this.listChanged();
+      this.show(r.conversation.id);
+      return r.conversation;
+    });
+  }
+
+  /** After a group change: the new summary and member list. */
+  groupChanged(r) {
+    if (!r || r.left) return;
+    const c = this.conv(r.conversation.id);
+    if (c) c.summary = { ...c.summary, ...r.conversation };
+    if (r.members) this.members[r.conversation.id] = r.members;
+    this.listChanged();
+  }
+
+  leaveGroup(id) {
+    return api.removeMember(id, this.me.id()).then(() => this.forget(id));
   }
 
   edit(messageId, body) {
@@ -694,8 +1074,9 @@ export default class ParleyState {
 
   markRead(id) {
     const c = this.conv(id);
-    if (!c || !c.messages.length || !this.isVisible(id)) return;
-    const last = c.messages[c.messages.length - 1].id;
+    const sent = c ? c.messages.filter((x) => !x.pending) : [];
+    if (!c || !sent.length || !this.isVisible(id)) return;
+    const last = sent[sent.length - 1].id;
     this.unread[id] = 0;
     if ((c.summary.lastReadMessageId || 0) >= last) return;
     c.summary.lastReadMessageId = last;
@@ -705,6 +1086,7 @@ export default class ParleyState {
   hide(id) {
     api.action(id, 'hide');
     this.close(id);
+    this.listChanged();
   }
 
   // ── People ────────────────────────────────────────────────────────────────
@@ -805,4 +1187,11 @@ export default class ParleyState {
       // Nothing saved, or storage refused.
     }
   }
+}
+
+/** A random id for one send, so a retry is recognised as the same message. */
+function nonce() {
+  const bytes = new Uint8Array(12);
+  (window.crypto || window.msCrypto).getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 }

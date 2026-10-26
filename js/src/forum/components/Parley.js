@@ -4,7 +4,6 @@ import extractText from 'flarum/common/utils/extractText';
 import Rail from './Rail';
 import Heads from './Heads';
 import ChatWindow from './ChatWindow';
-import InboxPage from './InboxPage';
 import { DOCK_BREAKPOINT } from '../state';
 
 const t = (key, params) => app.translator.trans('ernestdefoe-parley.forum.' + key, params);
@@ -93,7 +92,7 @@ export default class Parley extends Component {
     const docked = s.railDocked();
     const showRail = docked || s.railSheet;
     // The inbox page draws conversations itself; the dock would repeat them.
-    const onInbox = !!(app.current && app.current.matches && app.current.matches(InboxPage));
+    const onInbox = s.onInbox();
     const total = s.totalUnread();
 
     return (
@@ -111,7 +110,7 @@ export default class Parley extends Component {
             ))}
           </div>
         ) : null}
-        {!showRail ? (
+        {!showRail && !(onInbox && s.isMobile()) ? (
           <button className="pl-peek" onclick={() => s.toggleRail()} aria-label={extractText(t('rail.show'))}>
             <span className="pl-peek-dot" />
             <span>

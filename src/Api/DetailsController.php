@@ -13,7 +13,8 @@ use Psr\Http\Message\ServerRequestInterface;
 
 /**
  * The details column: who is in a conversation, and one tab of what has been
- * shared in it — media, files, links or pins — a page at a time.
+ * shared in it — media, files, links or pins — a page at a time. ?tab=members
+ * is the member list alone, for @mention suggestions.
  */
 class DetailsController extends Controller
 {
@@ -40,6 +41,10 @@ class DetailsController extends Controller
         // Members come with the first page; a room's are not listed here.
         if (! $before && ! $this->rooms->isRoom($conversation)) {
             $out['members'] = $this->groups->members($conversation);
+        }
+
+        if ($tab === 'members') {
+            return $out;
         }
 
         if ($tab === 'pins') {

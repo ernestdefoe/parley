@@ -5,7 +5,6 @@ import Button from 'flarum/common/components/Button';
 import UserControls from 'flarum/forum/utils/UserControls';
 import ParleyState from './state';
 import Parley from './components/Parley';
-import InboxPage from './components/InboxPage';
 import MessageNotification from './components/MessageNotification';
 import ReportNotification from './components/ReportNotification';
 import RoomMentionNotification from './components/RoomMentionNotification';
@@ -25,6 +24,8 @@ app.initializers.add('ernestdefoe-parley', () => {
    * the whole forum booting. Not /chat either, which ramon/chat holds while
    * both are installed during a switch-over.
    */
+  // The messenger loads when someone first goes there, never with other pages.
+  const InboxPage = () => import('./components/InboxPage');
   app.routes['parley.inbox'] = { path: '/parley', component: InboxPage };
   app.routes['parley.conversation'] = { path: '/parley/:id', component: InboxPage };
 
@@ -121,6 +122,7 @@ app.initializers.add('ernestdefoe-parley', () => {
           onchange={(e) => user.savePreferences({ parleyWhoCanMessage: e.target.value })}
         >
           <option value="everyone">{t('settings.everyone')}</option>
+          <option value="everyone_inbox">{t('settings.everyone_inbox')}</option>
           <option value="following">{t('settings.following')}</option>
           <option value="nobody">{t('settings.nobody')}</option>
         </select>

@@ -49,5 +49,29 @@ app.initializers.add('ernestdefoe-parley', () => {
       max: 50,
       label: app.translator.trans('ernestdefoe-parley.admin.settings.max_image_mb'),
       help: app.translator.trans('ernestdefoe-parley.admin.settings.max_image_mb_help'),
+    })
+    .registerSetting({
+      setting: 'ernestdefoe-parley.max_file_mb',
+      type: 'number',
+      min: 1,
+      max: 200,
+      label: app.translator.trans('ernestdefoe-parley.admin.settings.max_file_mb'),
+      help: app.translator.trans('ernestdefoe-parley.admin.settings.max_file_mb_help'),
+    })
+    .registerSetting({
+      setting: 'ernestdefoe-parley.max_voice_seconds',
+      type: 'number',
+      min: 10,
+      max: 900,
+      label: app.translator.trans('ernestdefoe-parley.admin.settings.max_voice_seconds'),
+      help: app.translator.trans('ernestdefoe-parley.admin.settings.max_voice_seconds_help'),
+    })
+    .registerSetting({
+      setting: 'ernestdefoe-parley.group_max_members',
+      type: 'number',
+      min: 3,
+      max: 250,
+      label: app.translator.trans('ernestdefoe-parley.admin.settings.group_max_members'),
+      help: app.translator.trans('ernestdefoe-parley.admin.settings.group_max_members_help'),
     });
 });

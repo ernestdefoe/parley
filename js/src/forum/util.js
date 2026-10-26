@@ -41,7 +41,8 @@ export function linkParts(text) {
  */
 export function runPosition(messages, i) {
   const m = messages[i];
-  const same = (o) => o && o.type !== 'call' && m.type !== 'call' && o.userId === m.userId && !breaks(o, m);
+  const own = (x) => x.type !== 'call' && x.type !== 'system';
+  const same = (o) => o && own(o) && own(m) && o.userId === m.userId && !!o.pending === !!m.pending && !breaks(o, m);
   const prev = same(messages[i - 1]) && messages[i - 1];
   const next = same(messages[i + 1]) && messages[i + 1];
   if (prev && next) return 'mid';
