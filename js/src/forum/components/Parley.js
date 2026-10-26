@@ -36,6 +36,24 @@ export default class Parley extends Component {
     };
     window.addEventListener('scroll', this.measure, { passive: true });
     window.addEventListener('resize', this.measure);
+
+    // The floating list closes on a click anywhere else, or Escape.
+    this.away = (e) => {
+      const s = app.parley;
+      if (!s.railSheet || s.railDocked()) return;
+      const t = e.target;
+      if (t.closest && (t.closest('.pl-rail') || t.closest('.pl-peek') || t.closest('.Modal') || t.closest('.Dropdown-menu'))) return;
+      s.railSheet = false;
+      m.redraw();
+    };
+    this.escape = (e) => {
+      if (e.key === 'Escape' && app.parley.railSheet && !app.parley.railDocked()) {
+        app.parley.railSheet = false;
+        m.redraw();
+      }
+    };
+    document.addEventListener('pointerdown', this.away, true);
+    document.addEventListener('keydown', this.escape);
     this.measure();
   }
 
@@ -44,6 +62,8 @@ export default class Parley extends Component {
     this.covered.forEach((el) => el.removeAttribute('data-parley-covered'));
     window.removeEventListener('scroll', this.measure);
     window.removeEventListener('resize', this.measure);
+    document.removeEventListener('pointerdown', this.away, true);
+    document.removeEventListener('keydown', this.escape);
   }
 
   /**
@@ -159,6 +179,8 @@ export default class Parley extends Component {
     const s = app.parley;
     const docked = s.railDocked();
     const showRail = docked || s.railSheet;
+    // Wider than a phone, the open list is a panel floating over the page.
+    const floating = !docked && s.railSheet && !s.isMobile();
     // The inbox page draws conversations itself; the dock would repeat them.
     const onInbox = s.onInbox();
     const total = s.totalUnread();
@@ -166,7 +188,11 @@ export default class Parley extends Component {
     return (
       <div
         className={
-          'Parley' + (docked ? ' docked' : '') + (s.railSheet ? ' sheet' : '') + (s.open.some((id) => !s.minimised.has(id)) ? ' has-window' : '')
+          'Parley' +
+          (docked ? ' docked' : '') +
+          (s.railSheet ? ' sheet' : '') +
+          (floating ? ' floating' : '') +
+          (s.open.some((id) => !s.minimised.has(id)) ? ' has-window' : '')
         }
       >
         {showRail ? <Rail /> : null}
@@ -178,8 +204,13 @@ export default class Parley extends Component {
             ))}
           </div>
         ) : null}
-        {!showRail && !(onInbox && s.isMobile()) ? (
-          <button className="pl-peek" onclick={() => s.toggleRail()} aria-label={extractText(t('rail.show'))}>
+        {!docked && !(s.railSheet && s.isMobile()) && !(onInbox && s.isMobile()) ? (
+          <button
+            className={'pl-peek' + (s.railSheet ? ' active' : '')}
+            onclick={() => s.toggleRail()}
+            aria-label={extractText(s.railSheet ? t('rail.hide') : t('rail.show'))}
+            aria-expanded={String(!!s.railSheet)}
+          >
             <span className="pl-peek-dot" />
             <span>
               {t('rail.peek', { count: s.onlineCount() })}

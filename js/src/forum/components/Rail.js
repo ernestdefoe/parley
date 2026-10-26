@@ -7,6 +7,7 @@ import RoomRow from './RoomRow';
 import StatusMenu, { statusColor } from './StatusMenu';
 import { activityLine, ownActivity } from './activity';
 import Icons from '../icons';
+import { DOCK_BREAKPOINT } from '../state';
 
 const t = (key, params) => app.translator.trans('ernestdefoe-parley.forum.' + key, params);
 
@@ -54,7 +55,17 @@ export default class Rail extends Component {
               {this.ownLine()}
             </div>
           </div>
-          <button className="pl-ib" title={extractText(t('rail.hide'))} aria-label={extractText(t('rail.hide'))} onclick={() => s.toggleRail()}>
+          {!s.railDocked() && window.innerWidth >= DOCK_BREAKPOINT ? (
+            <button className="pl-ib" title={extractText(t('rail.pin'))} aria-label={extractText(t('rail.pin'))} onclick={() => s.pinRail(true)}>
+              {Icons.pin()}
+            </button>
+          ) : null}
+          <button
+            className="pl-ib"
+            title={extractText(s.railDocked() ? t('rail.unpin') : t('rail.hide'))}
+            aria-label={extractText(s.railDocked() ? t('rail.unpin') : t('rail.hide'))}
+            onclick={() => s.toggleRail()}
+          >
             {Icons.x()}
           </button>
         </div>

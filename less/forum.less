@@ -1203,8 +1203,34 @@
   font-weight: 600;
 }
 .Parley .pl-peek-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--pl-online); }
+.Parley .pl-peek.active { color: var(--pl-accent); border-color: var(--pl-accent) !important; }
+
+/* The people list as a panel popping up out of the online button, over the
+   page instead of narrowing it. */
+.Parley.floating .pl-rail {
+  top: auto;
+  right: 16px;
+  bottom: ~"calc(70px + var(--pl-lift, 0px))";
+  width: 340px;
+  height: ~"min(620px, calc(100vh - 150px - var(--pl-lift, 0px)))";
+  border: 1px solid var(--pl-line);
+  border-radius: ~"calc(var(--pl-radius) * 2)";
+  box-shadow: var(--pl-shadow);
+  overflow: hidden;
+  padding-top: 0;
+  z-index: 1003;
+  transform-origin: 90% 100%;
+  animation: pl-pop .16s ease-out;
+
+  .pl-rail-foot { padding-bottom: 10px; }
+}
+.Parley.floating .pl-heads { display: none; }
+@keyframes pl-pop {
+  from { opacity: 0; transform: translateY(10px) scale(.96); }
+  to { opacity: 1; transform: none; }
+}
 /* Heads stack above the pill when it is showing. */
-.Parley:not(.docked):not(.sheet) .pl-heads:not(.above) { bottom: ~"calc(72px + var(--pl-lift, 0px))"; }
+.Parley:not(.docked) .pl-heads:not(.above) { bottom: ~"calc(72px + var(--pl-lift, 0px))"; }
 
 /* ── The messages page ─────────────────────────────────────────────────── */
 

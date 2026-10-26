@@ -74,7 +74,14 @@ export default class ParleyState {
     this.found = [];
     this.sections = { rooms: true, follow: true, all: true };
     this.statusMenu = false;
-    this.railHidden = false;
+    /**
+     * The people list floats in a panel over the page, popping up from the
+     * online button, unless the member pins it down the side ("docked"),
+     * which makes the page narrower. `railSheet` is that panel being open;
+     * on a phone it fills the screen.
+     */
+    this.railPinned = false;
+    this.railHidden = true;
     this.railSheet = false;
 
     this.realtime = false;
@@ -1149,17 +1156,26 @@ export default class ParleyState {
   }
 
   railDocked() {
-    return !this.railHidden && window.innerWidth >= DOCK_BREAKPOINT;
+    return this.railPinned && window.innerWidth >= DOCK_BREAKPOINT;
   }
 
+  /** The online button and the list's close button: open or close the panel; a docked list floats again. */
   toggleRail() {
-    if (window.innerWidth < DOCK_BREAKPOINT) {
-      this.railSheet = !this.railSheet;
-    } else {
-      this.railHidden = !this.railHidden;
-      this.fit();
-      this.save();
+    if (this.railDocked()) {
+      this.pinRail(false);
+      return;
     }
+    this.railSheet = !this.railSheet;
+  }
+
+  /** Pin the list down the side of the page, or let it float again. */
+  pinRail(on) {
+    this.railPinned = on;
+    this.railHidden = !on;
+    this.railSheet = false;
+    this.fit();
+    this.save();
+    m.redraw();
   }
 
   // ── Persistence ───────────────────────────────────────────────────────────
@@ -1172,7 +1188,7 @@ export default class ParleyState {
     try {
       localStorage.setItem(
         this.key(),
-        JSON.stringify({ open: this.open, heads: this.heads, min: [...this.minimised], railHidden: this.railHidden, expanded: [...this.expanded] })
+        JSON.stringify({ open: this.open, heads: this.heads, min: [...this.minimised], pinned: this.railPinned, expanded: [...this.expanded] })
       );
     } catch (e) {
       // Private windows refuse storage; Parley works without it.
@@ -1185,7 +1201,9 @@ export default class ParleyState {
       this.open = (s.open || []).map(Number);
       this.heads = (s.heads || []).map(Number);
       this.minimised = new Set((s.min || []).map(Number));
-      this.railHidden = !!s.railHidden;
+      // Floating is the default; only a member who pinned it gets it docked.
+      this.railPinned = !!s.pinned;
+      this.railHidden = !this.railPinned;
       this.expanded = new Set((s.expanded || []).map(Number));
     } catch (e) {
       // Nothing saved, or storage refused.
