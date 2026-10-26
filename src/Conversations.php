@@ -32,6 +32,21 @@ class Conversations
     /** The reactions the hover tray offers, in its order. */
     public const REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🔥'];
 
+    /** The colour labels a person can put on a conversation in their own list. */
+    public const LABELS = ['red', 'orange', 'yellow', 'green', 'blue', 'purple'];
+
+    /** The inbox's filters: All, Unread, Groups, and the More menu's. */
+    public const FILTERS = ['all', 'unread', 'groups', 'mentions', 'pinned', 'starred', 'muted', 'archived', 'requests'];
+
+    /** Message types a person's own message can be, as opposed to call and system rows. */
+    public const CONTENT = ['text', 'image', 'voice', 'video', 'file'];
+
+    /** How many people a group conversation's summary carries; the details column loads the rest. */
+    private const GROUP_FACES = 4;
+
+    /** The participant columns that are one person's own view of a conversation. */
+    private const MINE = ['last_read_message_id', 'muted', 'archived_at', 'starred', 'label', 'role', 'requested_at', 'last_mention_id'];
+
     public function __construct(
         protected ConnectionInterface $db,
         protected Gate $gate,
@@ -67,11 +82,17 @@ class Conversations
                 'updated_at' => $now,
             ]);
 
+            // A first message from someone they do not follow waits in the
+            // other person's Requests. Only a NEW conversation does: one that
+            // already exists was accepted, or started by them.
+            $request = $this->gate->landsInRequests($actor, $other) ? $now : null;
+
             foreach ([$actor->id, $other->id] as $userId) {
                 $this->db->table('parley_participants')->insert([
                     'conversation_id' => $id,
                     'user_id' => $userId,
                     'joined_at' => $now,
+                    'requested_at' => $userId === $other->id ? $request : null,
                 ]);
             }
 
@@ -107,6 +128,12 @@ class Conversations
         return $conversation;
     }
 
+    /** A conversation's row, with no access check: for code that has already made one. */
+    public function row(int $id): ?object
+    {
+        return $this->db->table('parley_conversations')->find($id);
+    }
+
     public function isParticipant(int $conversationId, int $userId): bool
     {
         return $this->db->table('parley_participants')
@@ -126,21 +153,44 @@ class Conversations
      * The viewer's conversations, newest activity first, in a fixed number of
      * queries.
      *
-     * @return list<array<string, mixed>>
+     * @return array{conversations: list<array<string, mixed>>, hasMore: bool}
      */
-    public function listFor(User $viewer, int $limit = 30): array
+    public function listFor(User $viewer, string $filter = 'all', int $offset = 0, int $limit = 30): array
     {
-        $rows = $this->db->table('parley_participants as p')
+        $q = $this->db->table('parley_participants as p')
             ->join('parley_conversations as c', 'c.id', '=', 'p.conversation_id')
             ->where('p.user_id', $viewer->id)
             ->where('c.type', 'direct')
             ->whereNotNull('c.last_message_id')
-            ->where(fn ($q) => $q->whereNull('p.hidden_at')->orWhereColumn('c.last_message_at', '>', 'p.hidden_at'))
-            ->orderByDesc('c.last_message_at')
-            ->limit($limit)
-            ->get(['c.*', 'p.last_read_message_id', 'p.muted']);
+            ->where(fn ($q) => $q->whereNull('p.hidden_at')->orWhereColumn('c.last_message_at', '>', 'p.hidden_at'));
 
-        return $this->summaries($rows->all(), $viewer);
+        // Requests wait in their own list, and the archive keeps its own;
+        // every other filter is a slice of the inbox proper.
+        if ($filter === 'requests') {
+            $q->whereNotNull('p.requested_at');
+        } else {
+            $q->whereNull('p.requested_at');
+            $filter === 'archived' ? $q->whereNotNull('p.archived_at') : $q->whereNull('p.archived_at');
+        }
+
+        match ($filter) {
+            'unread' => $q->whereRaw($this->wrap('c.last_message_id').' > coalesce('.$this->wrap('p.last_read_message_id').', 0)'),
+            'groups' => $q->where('c.is_group', true),
+            'mentions' => $q->whereNotNull('p.last_mention_id'),
+            'pinned' => $q->whereExists(fn ($w) => $w->from('parley_pins as pin')->whereColumn('pin.conversation_id', 'c.id')),
+            'starred' => $q->where('p.starred', true),
+            'muted' => $q->where('p.muted', true),
+            default => null,
+        };
+
+        $rows = $q->orderByDesc('c.last_message_at')->orderByDesc('c.id')
+            ->offset(max(0, $offset))->limit($limit + 1)
+            ->get(array_merge(['c.*'], array_map(fn ($c) => 'p.'.$c, self::MINE)))->all();
+
+        return [
+            'conversations' => $this->summaries(array_slice($rows, 0, $limit), $viewer),
+            'hasMore' => count($rows) > $limit,
+        ];
     }
 
     /** @return array<string, mixed> */
@@ -148,14 +198,33 @@ class Conversations
     {
         $mine = $this->db->table('parley_participants')
             ->where('conversation_id', $conversation->id)->where('user_id', $viewer->id)
-            ->first(['last_read_message_id', 'muted']);
+            ->first(self::MINE);
 
-        $row = (object) array_merge((array) $conversation, [
-            'last_read_message_id' => $mine->last_read_message_id ?? null,
-            'muted' => $mine->muted ?? false,
-        ]);
+        $row = (object) array_merge((array) $conversation, array_fill_keys(self::MINE, null), (array) ($mine ?? []));
 
         return $this->summaries([$row], $viewer)[0];
+    }
+
+    /**
+     * Several conversations' summaries for one viewer, in the order given,
+     * in the same fixed number of queries as one.
+     *
+     * @param  int[]  $ids
+     * @return list<array<string, mixed>>
+     */
+    public function summariesFor(array $ids, User $viewer): array
+    {
+        if ($ids === []) {
+            return [];
+        }
+
+        $rows = $this->db->table('parley_conversations as c')
+            ->leftJoin('parley_participants as p', fn ($j) => $j->on('p.conversation_id', '=', 'c.id')->where('p.user_id', '=', $viewer->id))
+            ->whereIn('c.id', $ids)
+            ->get(array_merge(['c.*'], array_map(fn ($c) => 'p.'.$c, self::MINE)))
+            ->keyBy('id');
+
+        return $this->summaries(array_values(array_filter(array_map(fn ($id) => $rows->get($id), $ids))), $viewer);
     }
 
     /**
@@ -174,10 +243,20 @@ class Conversations
         // header, so only direct conversations load theirs.
         $directIds = array_map(fn ($r) => (int) $r->id, array_filter($rows, fn ($r) => ! $this->rooms->isRoom($r)));
         $participants = $directIds === [] ? collect() : $this->db->table('parley_participants')->whereIn('conversation_id', $directIds)
-            ->get(['conversation_id', 'user_id', 'last_read_message_id']);
+            ->orderBy('id')->get(['conversation_id', 'user_id', 'last_read_message_id', 'role']);
+        $byConversation = $participants->groupBy('conversation_id');
 
-        $userIds = $participants->pluck('user_id')->map(fn ($id) => (int) $id)->unique()->all();
-        $users = User::query()->whereIn('id', $userIds)->with('groups')->get()->keyBy('id');
+        // A group's summary carries its first few faces, not all fifty: the
+        // list draws a stack of them, and the details column loads the rest.
+        $userIds = [];
+        foreach ($byConversation as $members) {
+            $others = $members->where('user_id', '!=', $viewer->id);
+            foreach ($others->take(self::GROUP_FACES) as $p) {
+                $userIds[(int) $p->user_id] = true;
+            }
+        }
+        $userIds = array_keys($userIds);
+        $users = $this->people->users($userIds);
 
         $lastIds = array_values(array_filter(array_map(fn ($r) => (int) $r->last_message_id, $rows)));
         $lastMessages = $this->payloads(
@@ -188,18 +267,27 @@ class Conversations
             $lastById[$m['id']] = $m;
         }
 
-        $unread = $this->unreadCounts($viewer->id, $ids);
+        $unread = $this->unreadCounts($viewer->id, $ids, true);
         $online = $this->presence->onlineAmong($userIds);
+        $pinned = $this->db->table('parley_pins')->whereIn('conversation_id', $ids)
+            ->groupBy('conversation_id')->select('conversation_id as cid')->selectRaw('count(*) as n')
+            ->pluck('n', 'cid');
 
         $out = [];
         foreach ($rows as $row) {
             $id = (int) $row->id;
+            $isRoom = $this->rooms->isRoom($row);
+            $isGroup = ! $isRoom && (bool) $row->is_group;
             $others = [];
             $seenBy = [];
+            $memberCount = 0;
+            $role = 'member';
 
-            foreach ($participants->where('conversation_id', $id) as $p) {
+            foreach ($byConversation->get($id, collect()) as $p) {
+                $memberCount++;
                 $uid = (int) $p->user_id;
                 if ($uid === $viewer->id) {
+                    $role = $p->role ?: 'member';
                     continue;
                 }
                 if ($user = $users->get($uid)) {
@@ -208,23 +296,46 @@ class Conversations
                 $seenBy[$uid] = $p->last_read_message_id ? (int) $p->last_read_message_id : null;
             }
 
+            $lastRead = $row->last_read_message_id ? (int) $row->last_read_message_id : null;
+
             $out[] = [
                 'id' => $id,
-                'type' => $this->rooms->isRoom($row) ? 'room' : 'direct',
-                'room' => $this->rooms->isRoom($row) ? $this->rooms->card($row) : null,
-                'isGroup' => (bool) $row->is_group,
-                'title' => $row->title,
+                'type' => $isRoom ? 'room' : 'direct',
+                'room' => $isRoom ? $this->rooms->card($row) : null,
+                'isGroup' => $isGroup,
+                'title' => $isRoom ? $row->title : ($row->title ?: null),
+                'imageUrl' => $isGroup ? $this->photos()->url($row->image_path ?? null) : null,
                 'participants' => $others,
+                'memberCount' => $isRoom ? null : $memberCount,
+                'role' => $role,
                 'lastMessage' => $lastById[(int) $row->last_message_id] ?? null,
                 'lastMessageAt' => $row->last_message_at ? Carbon::parse($row->last_message_at)->toIso8601String() : null,
-                'lastReadMessageId' => $row->last_read_message_id ? (int) $row->last_read_message_id : null,
+                'lastReadMessageId' => $lastRead,
+                // Read receipts by person; a group's carries every member's.
                 'seenBy' => $seenBy,
                 'unread' => $unread[$id] ?? 0,
                 'muted' => (bool) $row->muted,
+                'archived' => ! empty($row->archived_at),
+                'starred' => (bool) ($row->starred ?? false),
+                'label' => $row->label ?? null,
+                'request' => ! empty($row->requested_at),
+                'mentioned' => ! empty($row->last_mention_id) && (int) $row->last_mention_id > (int) $lastRead,
+                'pinCount' => (int) ($pinned[$id] ?? 0),
             ];
         }
 
         return $out;
+    }
+
+    private function photos(): GroupPhotos
+    {
+        return resolve(GroupPhotos::class);
+    }
+
+    /** A column for raw SQL, prefixed and quoted the way the query builder would. */
+    private function wrap(string $column): string
+    {
+        return $this->db->getQueryGrammar()->wrap($column);
     }
 
     /**
@@ -234,7 +345,7 @@ class Conversations
      * @param  int[]|null  $conversationIds  null for all of theirs
      * @return array<int, int>
      */
-    public function unreadCounts(int $userId, ?array $conversationIds = null): array
+    public function unreadCounts(int $userId, ?array $conversationIds = null, bool $withRequests = false): array
     {
         $q = $this->db->table('parley_participants as p')
             ->join('parley_messages as m', 'm.conversation_id', '=', 'p.conversation_id')
@@ -252,6 +363,12 @@ class Conversations
             $q->whereIn('p.conversation_id', $conversationIds);
         }
 
+        // A message request is not news until it is accepted: it counts in
+        // the Requests filter only, never on a badge.
+        if (! $withRequests) {
+            $q->whereNull('p.requested_at');
+        }
+
         $out = [];
         foreach ($q->get() as $row) {
             $out[(int) $row->cid] = (int) $row->n;
@@ -260,10 +377,40 @@ class Conversations
         return $out;
     }
 
+    /**
+     * Requests waiting for one person, and the conversations they have muted
+     * that have something unread — the heartbeat's two quiet counts.
+     *
+     * @return array{requests: int, quiet: int[]}
+     */
+    public function inboxState(int $userId, array $unread): array
+    {
+        $requests = $this->db->table('parley_participants as p')
+            ->join('parley_conversations as c', 'c.id', '=', 'p.conversation_id')
+            ->where('p.user_id', $userId)->whereNotNull('p.requested_at')->whereNotNull('c.last_message_id')
+            ->where(fn ($q) => $q->whereNull('p.hidden_at')->orWhereColumn('c.last_message_at', '>', 'p.hidden_at'))
+            ->count();
+
+        $quiet = array_keys(array_filter($unread));
+        $quiet = $quiet === [] ? [] : $this->db->table('parley_participants')->where('user_id', $userId)
+            ->whereIn('conversation_id', $quiet)->where('muted', true)
+            ->pluck('conversation_id')->map(fn ($id) => (int) $id)->all();
+
+        return ['requests' => $requests, 'quiet' => $quiet];
+    }
+
     /** @return list<array<string, mixed>> oldest first */
-    public function messages(int $conversationId, ?int $beforeId = null, ?int $afterId = null): array
+    public function messages(int $conversationId, ?int $beforeId = null, ?int $afterId = null, ?int $aroundId = null): array
     {
         $q = $this->db->table('parley_messages')->where('conversation_id', $conversationId);
+
+        // Opening a search result: the message, with some either side of it.
+        if ($aroundId) {
+            $before = (clone $q)->where('id', '<', $aroundId)->orderByDesc('id')->limit(self::PAGE / 2)->get()->reverse();
+            $after = (clone $q)->where('id', '>=', $aroundId)->orderBy('id')->limit(self::PAGE / 2)->get();
+
+            return $this->payloads($before->concat($after)->values()->all());
+        }
 
         if ($afterId) {
             return $this->payloads($q->where('id', '>', $afterId)->orderBy('id')->limit(200)->get()->all());
@@ -295,6 +442,9 @@ class Conversations
             $reactions[(int) $r->message_id][] = ['userId' => (int) $r->user_id, 'emoji' => $r->emoji];
         }
 
+        $pinned = array_fill_keys($this->db->table('parley_pins')->whereIn('message_id', $ids)
+            ->pluck('message_id')->map(fn ($id) => (int) $id)->all(), true);
+
         $replyIds = array_values(array_filter(array_map(fn ($r) => (int) $r->reply_to_id, $rows)));
         $replies = $replyIds === [] ? collect() : $this->db->table('parley_messages')->whereIn('id', $replyIds)->get()->keyBy('id');
 
@@ -304,9 +454,9 @@ class Conversations
             array_map(fn ($r) => (int) $r->user_id, $rows),
             $replies->pluck('user_id')->map(fn ($id) => (int) $id)->all()
         ))));
-        $authors = $authorIds === [] ? collect() : User::query()->whereIn('id', $authorIds)->with('groups')->get()->keyBy('id');
+        $authors = $this->people->users($authorIds);
 
-        return array_map(function ($r) use ($reactions, $replies, $authors) {
+        return array_map(function ($r) use ($reactions, $replies, $authors, $pinned) {
             $deleted = $r->deleted_at !== null;
             $reply = $r->reply_to_id ? $replies->get($r->reply_to_id) : null;
 
@@ -322,13 +472,14 @@ class Conversations
                     'id' => (int) $reply->id,
                     'userId' => $reply->user_id ? (int) $reply->user_id : null,
                     'authorName' => $reply->user_id && $authors->get((int) $reply->user_id) ? $authors->get((int) $reply->user_id)->display_name : null,
-                    'excerpt' => $reply->deleted_at ? null : ($reply->type === 'image' ? null : mb_substr((string) $reply->body, 0, 120)),
+                    'excerpt' => $reply->deleted_at ? null : (in_array($reply->type, ['text', 'file'], true) ? mb_substr((string) $reply->body, 0, 120) : null),
                     'type' => $reply->type,
                 ] : null,
                 'reactions' => $deleted ? [] : ($reactions[(int) $r->id] ?? []),
                 'createdAt' => Carbon::parse($r->created_at)->toIso8601String(),
                 'editedAt' => $r->edited_at ? Carbon::parse($r->edited_at)->toIso8601String() : null,
                 'deleted' => $deleted,
+                'pinned' => isset($pinned[(int) $r->id]),
             ];
         }, $rows);
     }
@@ -348,8 +499,15 @@ class Conversations
      * @param  array<string, mixed>|null  $meta
      * @return array<string, mixed> the message payload
      */
-    public function send(object $conversation, User $actor, string $type, ?string $body, ?array $meta = null, ?int $replyToId = null): array
+    public function send(object $conversation, User $actor, string $type, ?string $body, ?array $meta = null, ?int $replyToId = null, ?string $nonce = null): array
     {
+        // A send retried after a dropped connection carries the same nonce:
+        // the message it already made is the answer, not a second copy.
+        $nonceKey = $nonce !== null && preg_match('/^[A-Za-z0-9_-]{8,40}$/', $nonce) ? 'parley.nonce.'.$actor->id.'.'.$nonce : null;
+        if ($nonceKey && ($sent = $this->cache->get($nonceKey)) && ($row = $this->message((int) $sent))) {
+            return $this->payloads([$row])[0] + ['nonce' => $nonce];
+        }
+
         $this->guardSend($conversation, $actor);
 
         if ($type === 'text') {
@@ -392,11 +550,22 @@ class Conversations
         $this->db->table('parley_participants')->where('conversation_id', $conversation->id)
             ->update(['hidden_at' => null]);
 
+        // News brings an archived conversation back to the inbox, unless it
+        // was muted too: muting and archiving is "keep this out of my way".
+        $this->db->table('parley_participants')->where('conversation_id', $conversation->id)
+            ->whereNotNull('archived_at')->where('muted', false)
+            ->update(['archived_at' => null]);
+
+        // Writing back is accepting: a request you reply to is a conversation.
         $this->db->table('parley_participants')
             ->where('conversation_id', $conversation->id)->where('user_id', $actor->id)
-            ->update(['last_read_message_id' => $id]);
+            ->update(['last_read_message_id' => $id, 'requested_at' => null]);
 
         $payload = $this->payloads([$this->message($id)])[0];
+        if ($nonceKey) {
+            $this->cache->put($nonceKey, $id, 600);
+            $payload['nonce'] = $nonce;
+        }
 
         if ($this->rooms->isRoom($conversation)) {
             $members = $this->rooms->audience($conversation, $this->participantIds((int) $conversation->id));
@@ -409,13 +578,120 @@ class Conversations
         }
 
         $recipients = $this->participantIds((int) $conversation->id);
+        $waiting = $this->requestedIds((int) $conversation->id);
 
-        // The sender's own other tabs need it too.
-        $this->broadcaster->toUsers($recipients, 'message', ['message' => $payload]);
+        // The sender's own other tabs need it too. Someone holding this as a
+        // request hears it quietly: it is filed, nothing pops up.
+        $this->broadcaster->toUsers(array_diff($recipients, $waiting), 'message', ['message' => $payload]);
+        $this->broadcaster->toUsers($waiting, 'message', ['message' => $payload, 'request' => true]);
 
-        $this->notifyOffline($conversation, $actor, array_values(array_diff($recipients, [$actor->id])));
+        $mentioned = $type === 'text' && $conversation->is_group
+            ? $this->notifyMentions($conversation, $actor, (string) $body, $id, $recipients, $waiting)
+            : [];
+
+        // A group's own news (renamed, left, a new photo) alerts nobody; being
+        // put in a group alerts the people put in it.
+        $alert = array_values(array_diff($recipients, [$actor->id], $waiting, $mentioned));
+        if ($type === 'system') {
+            $alert = match ($meta['action'] ?? null) {
+                'created' => $alert,
+                'added' => array_values(array_intersect($alert, array_map('intval', (array) ($meta['userIds'] ?? [])))),
+                default => [],
+            };
+        }
+        $this->notifyOffline($conversation, $actor, $alert);
 
         return $payload;
+    }
+
+    /**
+     * Send the same message on to other conversations: up to five, each one
+     * a conversation the sender may write in.
+     *
+     * @param  int[]  $conversationIds
+     * @return list<array<string, mixed>>
+     */
+    public function forward(int $messageId, User $actor, array $conversationIds): array
+    {
+        $message = $this->message($messageId);
+
+        if (! $message || $message->deleted_at || ! in_array($message->type, self::CONTENT, true)
+            || ! $this->canSee((int) $message->conversation_id, $actor)) {
+            throw new ModelNotFoundException();
+        }
+
+        $ids = array_slice(array_values(array_unique(array_map('intval', $conversationIds))), 0, 5);
+        if ($ids === []) {
+            throw new ValidationException(['conversationIds' => $this->translator->trans('ernestdefoe-parley.api.forward_where')]);
+        }
+
+        // Every target is checked before anything is sent: all or nothing.
+        $targets = array_map(fn (int $id) => $this->find($id, $actor), $ids);
+
+        $meta = $message->meta === null ? [] : (array) json_decode($message->meta, true);
+        unset($meta['forwarded']);
+        $meta['forwarded'] = true;
+
+        return array_map(
+            fn (object $target) => $this->send($target, $actor, $message->type, $message->body, $meta),
+            $targets
+        );
+    }
+
+    /**
+     * One person's own settings for a conversation: muted, archived, starred
+     * and a colour label. Only what is sent changes.
+     *
+     * @param  array<string, mixed>  $changes
+     */
+    public function settings(object $conversation, User $actor, array $changes): void
+    {
+        $update = [];
+
+        if (array_key_exists('muted', $changes)) {
+            $update['muted'] = (bool) $changes['muted'];
+        }
+        if (array_key_exists('archived', $changes)) {
+            $update['archived_at'] = $changes['archived'] ? date('Y-m-d H:i:s') : null;
+        }
+        if (array_key_exists('starred', $changes)) {
+            $update['starred'] = (bool) $changes['starred'];
+        }
+        if (array_key_exists('label', $changes)) {
+            $label = $changes['label'];
+            if ($label !== null && ! in_array($label, self::LABELS, true)) {
+                throw new ValidationException(['label' => $this->translator->trans('ernestdefoe-parley.api.unknown_label')]);
+            }
+            $update['label'] = $label;
+        }
+
+        if ($update === [] || ! $this->isParticipant((int) $conversation->id, $actor->id)) {
+            return;
+        }
+
+        $this->db->table('parley_participants')
+            ->where('conversation_id', $conversation->id)->where('user_id', $actor->id)
+            ->update($update);
+
+        // Your other tabs redraw the list.
+        $this->broadcaster->toUsers([$actor->id], 'conversationChanged', ['conversationId' => (int) $conversation->id]);
+    }
+
+    /** Accept a message request: it moves to the inbox and behaves like any conversation. */
+    public function accept(object $conversation, User $actor): void
+    {
+        $this->db->table('parley_participants')
+            ->where('conversation_id', $conversation->id)->where('user_id', $actor->id)
+            ->update(['requested_at' => null]);
+
+        $this->broadcaster->toUsers([$actor->id], 'conversationChanged', ['conversationId' => (int) $conversation->id]);
+    }
+
+    /** @return int[] who in a conversation is still holding it as a request */
+    public function requestedIds(int $conversationId): array
+    {
+        return $this->db->table('parley_participants')->where('conversation_id', $conversationId)
+            ->whereNotNull('requested_at')->pluck('user_id')->map(fn ($id) => (int) $id)->all();
     }
 
     public function edit(int $messageId, User $actor, string $body): array
@@ -452,6 +728,7 @@ class Conversations
         $this->db->table('parley_messages')->where('id', $messageId)
             ->update(['deleted_at' => date('Y-m-d H:i:s')]);
         $this->db->table('parley_reactions')->where('message_id', $messageId)->delete();
+        $this->db->table('parley_pins')->where('message_id', $messageId)->delete();
 
         return $this->changed($messageId);
     }
@@ -497,7 +774,9 @@ class Conversations
 
         if ($updated) {
             // Nobody needs to know who has read a room; your own other tabs do.
-            $readers = $this->rooms->isRoom($conversation) ? [$actor->id] : $this->participantIds((int) $conversation->id);
+            // Reading a request is not answering it, so its sender is not told.
+            $private = $this->rooms->isRoom($conversation) || in_array($actor->id, $this->requestedIds((int) $conversation->id), true);
+            $readers = $private ? [$actor->id] : $this->participantIds((int) $conversation->id);
             $this->broadcaster->toUsers($readers, 'read', [
                 'conversationId' => (int) $conversation->id,
                 'userId' => $actor->id,
@@ -552,7 +831,7 @@ class Conversations
     // ── Internals ───────────────────────────────────────────────────────────
 
     /** Room: can see it. Direct: is in it. */
-    private function canSee(int $conversationId, User $actor): bool
+    public function canSee(int $conversationId, User $actor): bool
     {
         $conversation = $this->db->table('parley_conversations')->find($conversationId);
 
@@ -566,23 +845,40 @@ class Conversations
     }
 
     /**
-     * @username in a room alerts that person — once per message, only if they
-     * can see the room, and never the sender.
+     * @username alerts that person — once per message, never the sender. In a
+     * room, anyone who can see the room; in a group, its members, except one
+     * still holding it as an unanswered request.
+     *
+     * @param  int[]|null  $members  a group's members; null for a room
+     * @param  int[]  $waiting  members holding it as a request
+     * @return int[] who was alerted
      */
-    private function notifyMentions(object $room, User $actor, string $body, int $messageId): void
+    private function notifyMentions(object $conversation, User $actor, string $body, int $messageId, ?array $members = null, array $waiting = []): array
     {
         if (! preg_match_all('/(?<![\w@])@([A-Za-z0-9_\-.]{2,30})/u', $body, $m)) {
-            return;
+            return [];
         }
 
         $names = array_slice(array_unique(array_map('mb_strtolower', $m[1])), 0, 10);
-        $users = User::query()->whereIn('username', $names)->where('id', '!=', $actor->id)->get()
-            ->filter(fn (User $u) => $this->rooms->canView($room, $u) && ! $this->relationsBlock($actor, $u))
+        $q = User::query()->whereIn('username', $names)->where('id', '!=', $actor->id);
+        if ($members !== null) {
+            $q->whereIn('id', array_diff($members, $waiting));
+        }
+        $users = $q->get()
+            ->filter(fn (User $u) => ($members !== null || $this->rooms->canView($conversation, $u)) && ! $this->relationsBlock($actor, $u))
             ->values()->all();
 
-        if ($users !== []) {
-            $this->notifications->sync(new RoomMentionBlueprint($actor, (int) $room->id, $messageId), $users);
+        if ($users === []) {
+            return [];
         }
+
+        $ids = array_map(fn (User $u) => (int) $u->id, $users);
+        $this->db->table('parley_participants')->where('conversation_id', $conversation->id)
+            ->whereIn('user_id', $ids)->update(['last_mention_id' => $messageId]);
+
+        $this->notifications->sync(new RoomMentionBlueprint($actor, (int) $conversation->id, $messageId), $users);
+
+        return $ids;
     }
 
     private function relationsBlock(User $a, User $b): bool
@@ -607,7 +903,12 @@ class Conversations
             if ($reason = $this->rooms->postRefusal($conversation, $actor)) {
                 $this->refuse($reason, null);
             }
-        } elseif (! $conversation->is_group) {
+        } elseif ($conversation->is_group) {
+            // A group is written in by its members, and only them.
+            if (! $this->isParticipant((int) $conversation->id, $actor->id)) {
+                throw new ModelNotFoundException();
+            }
+        } else {
             // A one-to-one conversation is re-checked on every send: a block or a
             // "nobody" setting applies to conversations that already exist.
             $otherId = collect($this->participantIds((int) $conversation->id))->first(fn ($id) => $id !== $actor->id);
@@ -691,7 +992,7 @@ class Conversations
         Notification::query()->matchingBlueprint($blueprint)
             ->whereIn('user_id', $targets)->whereNotNull('read_at')->delete();
 
-        $this->notifications->sync($blueprint, User::query()->whereIn('id', $targets)->get()->all());
+        $this->notifications->sync($blueprint, $this->people->users($targets)->values()->all());
     }
 
     /** @return never */

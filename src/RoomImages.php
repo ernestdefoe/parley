@@ -40,7 +40,7 @@ class RoomImages
     }
 
     /**
-     * Purging the extension deletes every room logo it stored. Called by the
+     * Purging the extension deletes every room logo and group photo it stored. Called by the
      * conversations table's down(), so disabling alone keeps them.
      *
      * flarum-assets is core's disk, so it is there while the extension is
@@ -52,6 +52,7 @@ class RoomImages
         $disk = $container->make(Factory::class)->disk('flarum-assets');
 
         $disk->delete(preg_grep(self::NAME, $disk->files('parley/rooms')));
+        $disk->delete(preg_grep(GroupPhotos::NAME, $disk->files('parley/groups')));
 
         if ($disk->allFiles('parley') === []) {
             $disk->deleteDirectory('parley');

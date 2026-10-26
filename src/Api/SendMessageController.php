@@ -24,7 +24,8 @@ class SendMessageController extends Controller
             'text',
             (string) $this->input($request, 'body', ''),
             null,
-            (int) $this->input($request, 'replyToId') ?: null
+            (int) $this->input($request, 'replyToId') ?: null,
+            ($nonce = $this->input($request, 'nonce')) ? (string) $nonce : null
         );
 
         return ['message' => $message];

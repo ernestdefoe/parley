@@ -2,9 +2,11 @@
 
 use Ernestdefoe\Parley\Api;
 use Ernestdefoe\Parley\Broadcaster;
+use Ernestdefoe\Parley\Console\ImportGroupMessagesCommand;
 use Ernestdefoe\Parley\Console\ImportRamonCommand;
 use Ernestdefoe\Parley\Conversations;
 use Ernestdefoe\Parley\Gate;
+use Ernestdefoe\Parley\ParleyServiceProvider;
 use Ernestdefoe\Parley\Notification\NewMessageBlueprint;
 use Ernestdefoe\Parley\Notification\ReportBlueprint;
 use Ernestdefoe\Parley\Notification\RoomMentionBlueprint;
@@ -26,6 +28,9 @@ return [
 
     new Extend\Locales(__DIR__.'/locale'),
 
+    (new Extend\ServiceProvider())
+        ->register(ParleyServiceProvider::class),
+
     (new Extend\Routes('api'))
         ->post('/parley/heartbeat', 'ernestdefoe-parley.heartbeat', Api\HeartbeatController::class)
         ->post('/parley/leave', 'ernestdefoe-parley.leave', Api\HeartbeatController::class)
@@ -44,12 +49,24 @@ return [
         ->get('/parley/conversations/{id:\d+}', 'ernestdefoe-parley.conversation', Api\ShowConversationController::class)
         ->post('/parley/conversations/{id:\d+}/messages', 'ernestdefoe-parley.send', Api\SendMessageController::class)
         ->post('/parley/conversations/{id:\d+}/images', 'ernestdefoe-parley.image.upload', Api\UploadImageController::class)
-        ->post('/parley/conversations/{id:\d+}/{action:read|typing|hide|mute}', 'ernestdefoe-parley.conversation.action', Api\ConversationActionController::class)
+        ->post('/parley/conversations/{id:\d+}/files', 'ernestdefoe-parley.file.upload', Api\UploadFileController::class)
+        ->get('/parley/conversations/{id:\d+}/details', 'ernestdefoe-parley.details', Api\DetailsController::class)
+        ->post('/parley/conversations/{id:\d+}/{action:read|typing|hide|mute|accept|settings}', 'ernestdefoe-parley.conversation.action', Api\ConversationActionController::class)
+        ->post('/parley/groups', 'ernestdefoe-parley.groups.create', Api\GroupsController::class)
+        ->patch('/parley/conversations/{id:\d+}', 'ernestdefoe-parley.groups.rename', Api\GroupsController::class)
+        ->post('/parley/conversations/{id:\d+}/photo', 'ernestdefoe-parley.groups.photo', Api\GroupsController::class)
+        ->delete('/parley/conversations/{id:\d+}/photo', 'ernestdefoe-parley.groups.photo.delete', Api\GroupsController::class)
+        ->post('/parley/conversations/{id:\d+}/members', 'ernestdefoe-parley.groups.members.add', Api\GroupsController::class)
+        ->delete('/parley/conversations/{id:\d+}/members/{userId:\d+}', 'ernestdefoe-parley.groups.members.remove', Api\GroupsController::class)
         ->patch('/parley/messages/{id:\d+}', 'ernestdefoe-parley.message.edit', Api\MessageController::class)
         ->delete('/parley/messages/{id:\d+}', 'ernestdefoe-parley.message.delete', Api\MessageController::class)
         ->post('/parley/messages/{id:\d+}/react', 'ernestdefoe-parley.react', Api\ReactController::class)
+        ->post('/parley/messages/{id:\d+}/pin', 'ernestdefoe-parley.message.pin', Api\MessageActionController::class)
+        ->post('/parley/messages/{id:\d+}/forward', 'ernestdefoe-parley.message.forward', Api\MessageActionController::class)
         ->post('/parley/messages/{id:\d+}/report', 'ernestdefoe-parley.report', Api\ReportsController::class)
         ->get('/parley/images/{id:\d+}', 'ernestdefoe-parley.image', Api\ImageController::class)
+        ->get('/parley/files/{id:\d+}', 'ernestdefoe-parley.file', Api\ImageController::class)
+        ->get('/parley/search', 'ernestdefoe-parley.search', Api\SearchController::class)
         ->get('/parley/people', 'ernestdefoe-parley.people', Api\PeopleController::class)
         ->post('/parley/people/{id:\d+}/{action:follow|block}', 'ernestdefoe-parley.person.action', Api\PersonActionController::class)
         ->get('/parley/reports', 'ernestdefoe-parley.reports', Api\ReportsController::class)
@@ -57,7 +74,7 @@ return [
 
     (new Extend\User())
         ->registerPreference('parleyStatus', fn ($v) => in_array($v, ['online', 'busy', 'invisible'], true) ? $v : 'online', 'online')
-        ->registerPreference('parleyWhoCanMessage', fn ($v) => in_array($v, ['everyone', 'following', 'nobody'], true) ? $v : 'everyone', 'everyone'),
+        ->registerPreference('parleyWhoCanMessage', fn ($v) => in_array($v, ['everyone', 'everyone_inbox', 'following', 'nobody'], true) ? $v : 'everyone', 'everyone'),
 
     (new Extend\Notification())
         ->type(NewMessageBlueprint::class, ['alert'])
@@ -66,10 +83,14 @@ return [
 
     (new Extend\Settings())
         ->default('ernestdefoe-parley.max_image_mb', 8)
+        ->default('ernestdefoe-parley.max_file_mb', 25)
+        ->default('ernestdefoe-parley.max_voice_seconds', 300)
+        ->default('ernestdefoe-parley.group_max_members', 50)
         ->default('ernestdefoe-parley.away_minutes', 10),
 
     (new Extend\Console())
-        ->command(ImportRamonCommand::class),
+        ->command(ImportRamonCommand::class)
+        ->command(ImportGroupMessagesCommand::class),
 
     /*
      * Everything the client needs before its first heartbeat, in the boot
@@ -89,7 +110,11 @@ return [
                         'realtime' => resolve(Broadcaster::class)->available(),
                         'awayMinutes' => (int) $settings->get('ernestdefoe-parley.away_minutes') ?: 10,
                         'maxImageMb' => (int) $settings->get('ernestdefoe-parley.max_image_mb') ?: 8,
+                        'maxFileMb' => (int) $settings->get('ernestdefoe-parley.max_file_mb') ?: 25,
+                        'maxVoiceSeconds' => (int) $settings->get('ernestdefoe-parley.max_voice_seconds') ?: 300,
+                        'groupMaxMembers' => (int) $settings->get('ernestdefoe-parley.group_max_members') ?: 50,
                         'reactions' => Conversations::REACTIONS,
+                        'labels' => Conversations::LABELS,
                     ];
                 }),
         ]),

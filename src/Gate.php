@@ -97,6 +97,25 @@ class Gate
         };
     }
 
+    /**
+     * Whether a first message from $actor waits in $target's Requests: quietly,
+     * with no alert and no pop-up, until $target accepts it or replies.
+     *
+     * It is the default "Everyone" setting doing it — everyone may write, and
+     * the ones $target does not follow knock first. "Everyone, straight to my
+     * inbox" turns it off; "People I follow" never lets a stranger through to
+     * knock at all. Staff are never held back, the same as in refusal().
+     */
+    public function landsInRequests(User $actor, User $target): bool
+    {
+        if ($actor->hasPermission(self::MODERATE)) {
+            return false;
+        }
+
+        return $target->getPreference('parleyWhoCanMessage', 'everyone') === 'everyone'
+            && ! $this->relations->follows($target->id, $actor->id);
+    }
+
     public function isSuspended(User $user): bool
     {
         $until = $user->getAttribute('suspended_until');

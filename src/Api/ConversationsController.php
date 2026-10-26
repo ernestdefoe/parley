@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Psr\Http\Message\ServerRequestInterface;
 
 /**
- * GET  — your conversations, newest first.
+ * GET  — your conversations, newest first: ?filter= one of Conversations::FILTERS, ?offset= to page.
  * POST — open the conversation with one person, creating it on first use.
  */
 class ConversationsController extends Controller
@@ -23,7 +23,13 @@ class ConversationsController extends Controller
         $this->member($actor);
 
         if ($request->getMethod() === 'GET') {
-            return ['conversations' => $this->conversations->listFor($actor)];
+            $filter = (string) $this->query($request, 'filter');
+
+            return $this->conversations->listFor(
+                $actor,
+                in_array($filter, Conversations::FILTERS, true) ? $filter : 'all',
+                (int) $this->query($request, 'offset')
+            );
         }
 
         $other = User::query()->whereVisibleTo($actor)->find((int) $this->input($request, 'userId'));

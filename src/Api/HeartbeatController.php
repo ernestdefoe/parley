@@ -88,7 +88,7 @@ class HeartbeatController extends Controller
         return $this->list->for($actor) + [
             'rooms' => $this->rooms->listFor($actor, $unread),
             'unread' => (object) $unread,
-        ];
+        ] + $this->conversations->inboxState($actor->id, $unread);
     }
 
     private function signal(): void

@@ -147,6 +147,20 @@ ernestdefoe-parley:
     upload_failed: The picture did not upload. Try again.
     image_too_big: "That picture is larger than {max} MB."
     not_an_image: That file is not a picture Parley can show. Use a JPEG, PNG, GIF or WebP.
+    no_file: No file was sent.
+    file_too_big: "That file is larger than {max} MB."
+    voice_too_long: "A voice note can be at most {max, plural, one {# minute} other {# minutes}} long."
+    not_audio: That recording could not be read. Try again.
+    not_a_video: That video's format is not one Parley can play. Use MP4, WebM or MOV.
+    file_type: Parley does not send that kind of file. PDFs, documents, spreadsheets, text, archives, pictures, videos and MP3s are fine.
+    forward_where: Pick at least one conversation to forward it to.
+    unknown_label: Unknown label.
+    too_many_pins: "A conversation can have at most {max} pinned messages. Unpin one first."
+    group_too_small: Pick at least two people to start a group.
+    group_too_big: "A group can have at most {max} people."
+    group_flood: You have started a lot of groups in the last hour. Try again later.
+    group_name: "A group name can be at most {max} characters."
+    group_photo_type: "Use a PNG, JPEG, WebP or GIF picture of up to {max} MB."
     room_name: Give the room a name of up to 80 characters.
     room_image_type: Use a PNG, JPEG, WebP or GIF image of up to 5 MB.
     refusal:
@@ -158,6 +172,7 @@ ernestdefoe-parley:
       unconfirmed: Confirm your email address before sending messages.
       unavailable: "{name} cannot receive messages."
       blocked: "You cannot message {name}."
+      blocked_in_group: "{name} cannot be in a group with someone in it."
       closed: "{name} is not accepting messages."
       following_only: "{name} only accepts messages from people they follow."
 
