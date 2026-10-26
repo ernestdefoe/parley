@@ -207,7 +207,7 @@ class Groups
             ->get(['user_id', 'role']);
 
         $users = $this->people->users($rows->pluck('user_id')->all());
-        $online = $this->presence->onlineAmong($users->keys()->map(fn ($id) => (int) $id)->all());
+        $online = $this->presence->shownOnlineAmong($users->keys()->map(fn ($id) => (int) $id)->all());
 
         return $rows->filter(fn ($r) => $users->has($r->user_id))->map(fn ($r) => $this->people->card($users->get($r->user_id)) + [
             'role' => $r->role,

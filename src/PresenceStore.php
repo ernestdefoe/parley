@@ -169,6 +169,30 @@ class PresenceStore
     }
 
     /** @param  int[]  $userIds  @return array<int, true> */
+    /**
+     * Who of these people OTHER members may be told is online: the same as
+     * onlineAmong(), less anyone who chose Appear offline. Use this for
+     * anything drawn; onlineAmong() is for deciding whether to alert.
+     *
+     * @param  int[]  $userIds
+     * @return array<int, true>
+     */
+    public function shownOnlineAmong(array $userIds): array
+    {
+        if ($userIds === []) {
+            return [];
+        }
+
+        return array_fill_keys(
+            $this->db->table('parley_presence')
+                ->whereIn('user_id', $userIds)
+                ->where('last_seen_at', '>=', $this->cutoff())
+                ->where('status', '!=', 'invisible')
+                ->pluck('user_id')->map(fn ($id) => (int) $id)->all(),
+            true
+        );
+    }
+
     public function onlineAmong(array $userIds): array
     {
         if ($userIds === []) {

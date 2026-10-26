@@ -47,7 +47,7 @@ class PeopleController extends Controller
             ->reject(fn (User $u) => isset($blocked[(int) $u->id]) || ! $this->gate->canUseInBulk($u))
             ->take(8);
 
-        $online = $this->presence->onlineAmong($users->pluck('id')->map(fn ($id) => (int) $id)->all());
+        $online = $this->presence->shownOnlineAmong($users->pluck('id')->map(fn ($id) => (int) $id)->all());
 
         return ['people' => $users->map(fn (User $u) => $this->people->card($u) + [
             'online' => isset($online[(int) $u->id]),

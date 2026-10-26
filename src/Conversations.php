@@ -268,7 +268,7 @@ class Conversations
         }
 
         $unread = $this->unreadCounts($viewer->id, $ids, true);
-        $online = $this->presence->onlineAmong($userIds);
+        $online = $this->presence->shownOnlineAmong($userIds);
         $pinned = $this->db->table('parley_pins')->whereIn('conversation_id', $ids)
             ->groupBy('conversation_id')->select('conversation_id as cid')->selectRaw('count(*) as n')
             ->pluck('n', 'cid');

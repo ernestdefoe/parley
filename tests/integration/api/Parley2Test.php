@@ -397,4 +397,25 @@ class Parley2Test extends TestCase
         $this->assertSame(200, $status);
         $this->assertSame([1, 2], array_column($body['messages'], 'id'));
     }
+
+    #[Test]
+    public function someone_who_appears_offline_is_never_shown_online()
+    {
+        $id = $this->call('POST', '/api/parley/groups', 2, ['userIds' => [3, 10]])[1]['conversation']['id'];
+        $this->call('POST', '/api/parley/heartbeat', 3, ['status' => 'invisible', 'place' => 'index']);
+        $this->call('POST', '/api/parley/heartbeat', 10, ['status' => 'online', 'place' => 'index']);
+
+        $online = fn (array $people) => array_column($people, 'online', 'username');
+
+        [, $list] = $this->call('GET', '/api/parley/conversations', 2);
+        $one = collect($list['conversations'])->firstWhere('id', 1);
+        $this->assertFalse($online($one['participants'])['other'], 'In the conversation list');
+
+        [, $details] = $this->call('GET', "/api/parley/conversations/$id/details", 2, [], ['tab' => 'members']);
+        $this->assertFalse($online($details['members'])['other'], 'In a group\'s member list');
+        $this->assertTrue($online($details['members'])['member10'], 'Someone online still is');
+
+        [, $people] = $this->call('GET', '/api/parley/people', 2, [], ['q' => 'oth']);
+        $this->assertFalse($online($people['people'])['other'], 'In people search');
+    }
 }
