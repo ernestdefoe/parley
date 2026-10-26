@@ -2,7 +2,11 @@
 
 Chat for Flarum 2. See who is online and what they are reading, message anyone in a window that stays open while you browse the forum, and talk together in rooms.
 
-![Rooms and people in the rail](screenshots/rooms.png)
+![The messenger at /parley](screenshots/messenger.png)
+
+| Groups and the details column, dark | Mini windows on any page | On a phone |
+|---|---|---|
+| ![A group with its details column](screenshots/messenger-dark-group.png) | ![Three mini windows docked](screenshots/mini-windows.png) | ![The conversation list on a phone](screenshots/phone-list.png) ![A conversation on a phone](screenshots/phone-chat.png) |
 
 - **Who's online, live.** A panel down the side lists everyone on the forum, with their status (Online, Away, Busy, Appear offline) and what they are doing: "Reading · Ohio State at Michigan". People you follow come first. The list updates the moment someone arrives or leaves.
 - **A messenger at `/parley`.** Your conversations down the left with a search box and All, Unread and Groups filters (More: mentions, pinned, starred, muted, archived, requests), the open conversation in the middle, and a details column with the people in it and the photos, files, links and pins shared there. On a phone, the list and the conversation are two full-width screens.

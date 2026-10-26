@@ -1225,15 +1225,16 @@
 }
 .Parley .pl-filters {
   display: flex;
-  gap: 6px;
+  gap: 4px;
   padding: 0 12px 8px;
   flex-wrap: wrap;
 }
 .Parley .pl-pill,
 .Parley .pl-more-filter .Dropdown-toggle {
-  padding: 5px 12px !important;
+  padding: 4px 10px !important;
   border-radius: 999px !important;
-  font-size: 13px !important;
+  font-size: 12.5px !important;
+  white-space: nowrap;
   font-weight: 600;
   color: var(--pl-fg) !important;
   background: var(--pl-surface-2) !important;
@@ -1257,6 +1258,7 @@
   font-weight: 700;
 }
 .Parley .pl-count { margin-left: 8px; }
+.Parley .pl-more-filter .pl-dotcount { margin-left: 2px; }
 .Parley .pl-list-scroll {
   flex: 1;
   overflow-y: auto;
