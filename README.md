@@ -5,9 +5,14 @@ Chat for Flarum 2. See who is online and what they are reading, message anyone i
 ![Rooms and people in the rail](screenshots/rooms.png)
 
 - **Who's online, live.** A panel down the side lists everyone on the forum, with their status (Online, Away, Busy, Appear offline) and what they are doing: "Reading · Ohio State at Michigan". People you follow come first. The list updates the moment someone arrives or leaves.
-- **Messages that follow you.** Click anyone to open a chat window docked at the bottom of the page. Keep up to three open while you read; the rest fold down to chat heads. Typing dots, "seen", reactions, replies, pictures, edit and delete.
+- **A messenger at `/parley`.** Your conversations down the left with a search box and All, Unread and Groups filters (More: mentions, pinned, starred, muted, archived, requests), the open conversation in the middle, and a details column with the people in it and the photos, files, links and pins shared there. On a phone, the list and the conversation are two full-width screens.
+- **In the forum's own look.** Parley draws with Flarum's own components and colours, light and dark, so your theme styles it.
+- **Messages that follow you.** Click anyone to open a mini window docked at the bottom of any page. Keep up to three open while you read; minimise, expand to the messenger, or close each one; the rest fold down to chat heads.
+- **Chat like a phone.** Grouped bubbles with the time and reactions underneath, day and "New messages" dividers, typing dots, "seen", replies, edits, an emoji picker, a one-tap 👍, **voice notes** recorded in the browser, **photos, videos and files**, **pins**, **forwarding**, **@mentions**, **search** in a chat and across chats (by person, date and type), drafts kept per conversation, and sends that wait out a dropped connection and go by themselves.
+- **Group conversations.** Three or more people, with a name and a photo. Add people, remove them (the group's owner), or leave.
+- **Your inbox, your way.** Mute, archive, star and colour-label any conversation.
+- **Message requests.** A first message from someone you don't follow waits quietly in Requests, with no alert, until you accept it or reply.
 - **Rooms.** Chat rooms for everyone, or for exactly the people who can see a tag. Rooms can sit inside other rooms (a team's room under its conference), carry a logo, and be announcement-only.
-- **A full inbox** at `/parley`, with every conversation and room.
 - **Safe by default.** Block anyone, choose who can message you, report a message to the moderators. Staff never read private conversations.
 
 **Voice and video calls**, and voice chat in rooms, are a separate paid add-on: **[Parley Calls](https://ernestdefoe.online/extensions/parley-calls)** (`ernestdefoe/parley-calls`), from $4 a month. Parley itself is free and MIT licensed.
@@ -146,6 +151,9 @@ It should say **`connected`**. If it says `connecting` and never changes, go bac
 | Rooms | — | Create and arrange rooms (section 6). |
 | Minutes before Away | 10 | Someone who has not touched the page for this long shows as Away, until they come back. |
 | Largest picture (MB) | 8 | The biggest picture a member can send in a conversation. |
+| Largest video or file (MB) | 25 | Videos and files. Your server's own upload limits (PHP's `upload_max_filesize` and `post_max_size`, nginx's `client_max_body_size`) must be at least this. |
+| Longest voice note (seconds) | 300 | Recording stops by itself here. |
+| Largest group conversation | 50 | People in one group, its creator included. |
 
 ## 5. Permissions
 
@@ -177,7 +185,12 @@ Members **join** a room by opening it, which means its messages arrive live and 
 ## 7. What members can set
 
 - **Status**: Online, Busy, or Appear offline, from the top of the online list. Away is set automatically after the idle time, and lifted when they come back. Busy keeps new conversations from popping up as chat heads. Appear offline hides them from the list while they still see everyone.
-- **Who can message me**: everyone, only people they follow, or nobody. Under **Settings → Privacy**. Moderators can always message them.
+- **Who can message me**, under **Settings → Privacy**:
+  - **Everyone** (the default): anyone can write, and a first message from someone they don't follow waits in **Requests**, with no alert, until they accept it or reply. The sender is not told it has been read until then.
+  - **Everyone, straight to my inbox**: no Requests.
+  - **People I follow**, or **Nobody**.
+  Moderators can always message them, and are never held in Requests. Being added to a group follows the same rules.
+- **Mute, archive, star and label** any conversation from its menu in the list. A muted or archived conversation never pops up or counts on the badge; a new message brings an archived one back unless it is also muted.
 - **Follow** and **Block**: from anyone's user menu. People you follow appear first in the online list. A block works both ways: neither of you can message the other or see the other online.
 - Flarum's own "Allow others to see when I am online" is respected: turned off, the member is not listed.
 
@@ -212,6 +225,17 @@ composer remove ramon/chat
 
 Back up ramon/chat's tables first if you might want them again: `migrate:reset` drops them.
 
+## 9b. Moving from Group Messages
+
+Where ernestdefoe/group-messages is installed, its group conversations come across into Parley as groups, with their names, photos (when stored on the forum), owner, members, messages, replies, reactions Parley has, and each member's read place:
+
+```bash
+php flarum parley:import-group-messages --dry-run
+php flarum parley:import-group-messages
+```
+
+Nothing in Group Messages is changed or deleted, so you can keep using it while you decide. Running the import again brings across only what is new since — messages sent there since, people added since.
+
 ## 10. Performance
 
 Parley is built so a busy forum does not pay for it in requests:
@@ -236,7 +260,10 @@ Parley is built so a busy forum does not pay for it in requests:
 ## 12. Privacy
 
 - **Private conversations are private.** No admin screen shows them. Moderators see only what a member reports, and only the reported message and the five before it.
-- **Pictures in conversations are private too.** They are stored outside the public web folder and served only to the people in that conversation, not merely hidden behind a hard-to-guess address.
+- **What is sent in a conversation is private too.** Pictures, videos, voice notes and files are stored outside the public web folder and served only to the people in that conversation, not merely hidden behind a hard-to-guess address.
+- **Uploads are checked by their contents**, not their names, against a list of safe types. Nothing a browser would run (HTML, SVG, scripts) is accepted, files are always a download, and every response forbids the browser from guessing a type or running anything.
+- **Photos lose their camera data**, including where they were taken, before anyone else sees them.
+- **Appear offline means offline everywhere**: in the list, in conversations and in group member lists.
 - **What someone is reading is only shown when you can see it too.** If someone is in a discussion you cannot see, the list says "Online", not the discussion's title.
 - **Guests are counted, never identified.** A guest's session is stored only as a one-way hash.
 - Deleting a member's account removes them from every conversation and room; the people they talked to keep their own side of the conversation, with the deleted member's messages left unattributed.
