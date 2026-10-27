@@ -110,6 +110,7 @@ export default class Composer extends Component {
             id={`Parley-input-${id}`}
             className="FormControl"
             rows="1"
+            dir="auto"
             placeholder={extractText(t('placeholder'))}
             autocomplete="off"
             aria-label={extractText(t('message_to', { name: title }))}

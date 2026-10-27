@@ -386,11 +386,18 @@ export default class MessageList extends Component {
     // A single emoji, or two or three, read better big and without a bubble.
     const big = /^(\p{Extended_Pictographic}|\p{Emoji_Component}|️|‍){1,8}$/u.test((msg.body || '').trim()) && !quote;
 
+    // A translator (Rosetta) can show the message in the reader's language:
+    // it hands back the text to show, its language and direction, and a line
+    // to put under it. Without one, the message as written; dir="auto" lets a
+    // message in Arabic or Hebrew run right to left either way.
+    const s = app.parley;
+    const shown = msg.type === 'text' && s.translate ? s.translate(msg) : null;
+
     return (
-      <div className={'pl-bub' + (big ? ' pl-big' : '')}>
+      <div className={'pl-bub' + (big ? ' pl-big' : '')} dir={shown?.dir || 'auto'} lang={shown?.lang}>
         {quote}
         {pin}
-        {linkParts(msg.body || '').map((part) =>
+        {linkParts(shown ? shown.body : msg.body || '').map((part) =>
           typeof part === 'string' ? (
             mentionParts(part).map((bit) => (typeof bit === 'string' ? bit : <b className="pl-mention">@{bit.username}</b>))
           ) : (
@@ -399,6 +406,7 @@ export default class MessageList extends Component {
             </a>
           )
         )}
+        {shown?.note}
       </div>
     );
   }
