@@ -1,0 +1,438 @@
+{
+ "name": "ernestdefoe/parley",
+ "version": "619f2ba",
+ "executive_summary": [
+  "Parley is well built and carefully commented, but a few real bugs (alerts that never clear on MySQL/PostgreSQL, upload decompression bombs, unique-key races) keep it from an approved-clean review.",
+  "The worst effect today: on MySQL and PostgreSQL, opening a conversation never marks its alert read, and tag-bound rooms cost two queries per member on every message.",
+  "Code quality is high (constructor injection, Flysystem disk, declarative frontend, TypeScript, integration tests); the remaining debt is a hand-rolled JSON API, multi-route controllers and very long files.",
+  "On large forums the heartbeat loads every online member and room events scale per member; both need bulk/capped queries."
+ ],
+ "findings": [
+  {
+   "severity": "high",
+   "blocking": false,
+   "verified": true,
+   "dimension": "robustness",
+   "pattern": "RB-GUARDS",
+   "title": "Reading a conversation never clears its alert on MySQL, and errors on PostgreSQL",
+   "location": "src/Conversations.php:702",
+   "problem": "markRead() matches notifications with where('data', json_encode([...])). In Flarum 2 notifications.data is native JSON: on MySQL a JSON-vs-string compare never matches (core's scopeMatchingBlueprint documents this and uses CAST(? AS JSON)), on PostgreSQL json = text is undefined and the query throws after the read receipt was saved. Only SQLite/MariaDB work, which is what the tests run.",
+   "fix": "Compare the way core's Notification::scopeMatchingBlueprint does: whenPgSql(data::text = ?) / whenMySql(data = CAST(? AS JSON)) / else where('data', ?), in one small helper; add a MySQL + PostgreSQL test."
+  },
+  {
+   "severity": "high",
+   "blocking": false,
+   "verified": true,
+   "dimension": "production_risk",
+   "pattern": "PR-NPLUS1",
+   "title": "Room audience runs a tag-visibility query (and a permission load) per member on every room event",
+   "location": "src/Rooms.php:281, src/Tags/FlarumTags.php:13",
+   "problem": "audience() loads every member with groups, then calls tagsVisibleTo() per member, which runs Tag::whereVisibleTo($user)->pluck() (plus that user's permission query) for each one. It runs on every send, edit, delete, react and pin in a tag-bound room (Conversations.php:592, MessageActions.php:151, Pins.php:72) and on typing (Conversations.php:723): a 500-member room costs ~1000 queries per message.",
+   "fix": "Answer it in bulk: TagVisibility::canSeeTag(int $tagId, Collection $users) that reads which groups hold the tag's viewForum permission once (plus admins/restricted-parent rules), filters users by their loaded groups like Gate::groupsGrant(), and cache the room's audience for ~60 s."
+  },
+  {
+   "severity": "medium",
+   "blocking": false,
+   "verified": true,
+   "dimension": "security",
+   "pattern": "SEC-VISIBILITY",
+   "title": "User lists built without whereVisibleTo",
+   "location": "src/OnlineList.php:50, src/Conversations.php:778",
+   "problem": "The online list (online members plus followed offline members with last-seen time) and the @mention lookup query User::query()->whereIn(...) with no whereVisibleTo($viewer). PeopleController applies it, so any extension that hides users through Extend\\ModelVisibility (shadow bans, private profiles) is bypassed here: hidden users still appear in the rail and can be pinged.",
+   "fix": "Add ->whereVisibleTo($viewer) to both queries (OnlineList::for, notifyMentions with the actor)."
+  },
+  {
+   "severity": "medium",
+   "blocking": false,
+   "verified": true,
+   "dimension": "production_risk",
+   "pattern": "PR-UNBOUNDED",
+   "title": "Every heartbeat loads every online member, though only 150 are drawn",
+   "location": "src/PresenceStore.php:158, src/OnlineList.php:50",
+   "problem": "onlineMembers() returns every presence row inside the window and OnlineList then loads all those users with groups, every 30 s for every member. CAP = 150 only limits the output; with 3 000 people online each heartbeat hydrates 3 000 users.",
+   "fix": "Cap the query: order by followed-first/last_seen and limit to CAP + a margin in SQL, and get the 'and N more' figure from a count() query."
+  },
+  {
+   "severity": "medium",
+   "blocking": false,
+   "verified": true,
+   "dimension": "production_risk",
+   "pattern": "PR-NPLUS1",
+   "title": "Per-person Gate/Relations queries inside loops",
+   "location": "src/Groups.php:265, src/Groups.php:237, src/Conversations.php:783",
+   "problem": "Groups::people() calls Gate::refusal() per invitee (hasPermission query, a block query and a follow query each), insertMembers() calls landsInRequests() per invitee (a follow query each), and notifyMentions() runs relationsBlock() plus canView() per mentioned user. Up to 250 invitees makes a group create ~750 queries.",
+   "fix": "Add bulk variants: load blocks/follows for the whole id list once (Relations::blockedEitherWay / followedBy already exist), use Gate::canUseInBulk() on users loaded with groups, and evaluate the loop from those maps."
+  },
+  {
+   "severity": "medium",
+   "blocking": false,
+   "verified": true,
+   "dimension": "production_risk",
+   "pattern": "PR-SYNC-IN-REQUEST",
+   "title": "Realtime pushes are synchronous HTTP calls inside the web request",
+   "location": "src/Broadcaster.php:46, src/Broadcaster.php:71",
+   "problem": "Every send, edit, react, pin, read receipt, typing signal and presence signal calls Pusher::trigger() inline, one HTTP call per 100 recipients. A 1 000-member room is 10 sequential HTTP round trips before the send returns, and a slow daemon slows every chat request.",
+   "fix": "Push from a queued job (inject Illuminate\\Contracts\\Queue\\Queue, a TriggerJob extending Flarum\\Queue\\AbstractJob); keep only typing inline if latency matters, with a short client timeout."
+  },
+  {
+   "severity": "medium",
+   "blocking": false,
+   "verified": true,
+   "dimension": "robustness",
+   "pattern": "PR-RACE",
+   "title": "Check-then-insert on unique keys: a double tap or two tabs 500s",
+   "location": "src/Conversations.php:74, src/Rooms.php:248, src/Relations.php:43, src/Relations.php:95, src/Pins.php:50, src/PresenceStore.php:102",
+   "problem": "pair() (pair_key unique, and its three inserts are not in a transaction), Rooms::join (unique conversation_id,user_id), setFollow/setBlock (primary keys), Pins::set (primary message_id; the 50-pin cap is also count-then-insert) and the heartbeat's updateOrInsert (unique visitor_key) all read, then insert. Two concurrent requests both pass the read and the second hits an integrity violation (500).",
+   "fix": "Use insertOrIgnore()/upsert() as react() already does; wrap pair() in a transaction and on UniqueConstraintViolationException re-read the row; heartbeat: upsert(['visitor_key'...])."
+  },
+  {
+   "severity": "medium",
+   "blocking": false,
+   "verified": true,
+   "dimension": "robustness",
+   "pattern": "RB-GUARDS",
+   "title": "No pixel limit before decoding uploaded images (decompression bomb)",
+   "location": "src/Images.php:165, src/GroupPhotos.php:49, src/RoomImages.php:78",
+   "problem": "Each checks only byte size, then decodes (Intervention read() / imagecreatefromstring). An 8 MB PNG of 30 000 x 30 000 px needs ~3.6 GB to decode: a member can crash workers at will. The sniff-and-validate code is also copy-pasted in the three classes.",
+   "fix": "One shared guard: getimagesizefromstring() first, refuse width*height above ~40 MP before any decode, used by all three (removes the duplication too)."
+  },
+  {
+   "severity": "medium",
+   "blocking": false,
+   "verified": true,
+   "dimension": "production_risk",
+   "pattern": "PR-LIKE",
+   "title": "@mentions never match capitalised usernames on PostgreSQL and SQLite",
+   "location": "src/Conversations.php:777",
+   "problem": "notifyMentions() lowercases the names, then does an exact whereIn('username', $names). That is case-insensitive only on MySQL's default collation; on PostgreSQL and SQLite '@BuckeyeBrian' finds nobody.",
+   "fix": "Keep the names as typed (dedupe case-insensitively) or compare lower(username) via the grammar-wrapped column, as PeopleController already does for pgsql."
+  },
+  {
+   "severity": "medium",
+   "blocking": false,
+   "verified": true,
+   "dimension": "production_risk",
+   "pattern": "PR-UNBOUNDED",
+   "title": "Files of deleted messages and conversations stay on disk forever",
+   "location": "src/MessageActions.php:92, src/Rooms.php:364, src/Groups.php:187",
+   "problem": "Deleting a message only sets deleted_at; deleting a room or the last member leaving a group cascades the message rows away. The photo, voice note or file in storage/parley is never removed, so 'delete for everyone' keeps the bytes and the disk only grows.",
+   "fix": "When a message is deleted (and before a conversation is deleted) delete its meta.file from the disk unless another message still references it (forward() copies the same path); or a scheduled sweep of unreferenced files."
+  },
+  {
+   "severity": "medium",
+   "blocking": false,
+   "verified": true,
+   "dimension": "flarum_conventions",
+   "pattern": "FC-CUSTOM-API",
+   "title": "CRUD and list endpoints are PSR-15 controllers returning hand-rolled JSON instead of API resources",
+   "location": "src/Api/Controller.php:21, extend.php:39, extend.php:42, extend.php:49, extend.php:51, extend.php:52, extend.php:55, extend.php:57, extend.php:58, extend.php:61, extend.php:62, extend.php:63, extend.php:64, extend.php:68, extend.php:71, extend.php:72, extend.php:74, extend.php:75",
+   "problem": "All 38 routes go to 20 RequestHandlerInterface controllers over stdClass rows (no AbstractModel models). Lists, shows, creates, updates and deletes of rooms, conversations, messages, members and reports are resources by shape; they get no includes, sparse fieldsets, pagination links, Extend\\ApiResource hooks for other extensions, or app.store on the client. The Controller.php docblock justifies it, which is likely why the last review did not charge it.",
+   "fix": "Add models (Conversation, Message, Participant, Report) and AbstractDatabaseResource classes for the CRUD/list routes (see the route split in the report); keep plain handlers only for the actions, each with a one-line reason."
+  },
+  {
+   "severity": "medium",
+   "blocking": false,
+   "verified": true,
+   "dimension": "architecture",
+   "pattern": "TD-DISPATCH",
+   "title": "One controller serves several routes by branching on route name, HTTP method or {action}",
+   "location": "src/Api/RoomsController.php:33, src/Api/GroupsController.php:34, src/Api/ReportsController.php:26, src/Api/ConversationActionController.php:26, src/Api/PersonActionController.php:33, src/Api/HeartbeatController.php:57, src/Api/MessageActionController.php:26, src/Api/ConversationsController.php:27, src/Api/MessageController.php:24",
+   "problem": "RoomsController handles 9 routes (admin and member) by string-matching getAttribute('routeName'), GroupsController 5, ConversationActionController 6 via {action}, and five more split by name or method. Authorization differs per branch inside one class, so a new route added under the prefix inherits the wrong guard silently.",
+   "fix": "One invokable handler per route (or resource endpoints, which removes most of them), each with its own guard."
+  },
+  {
+   "severity": "low",
+   "blocking": false,
+   "verified": true,
+   "dimension": "architecture",
+   "pattern": "AR-STATIC",
+   "title": "Public static mutable registries shared with another extension",
+   "location": "src/Rooms.php:29, src/Rooms.php:42",
+   "problem": "Rooms::$cardExtenders and Rooms::$owners are public static arrays Parley Calls writes into. Global state outlives the request in queue workers and test runs, and anything can overwrite them.",
+   "fix": "A container singleton (RoomRegistry) with addCardExtender()/addOwner(), injected into Rooms; Parley Calls registers through it in its provider."
+  },
+  {
+   "severity": "low",
+   "blocking": false,
+   "verified": true,
+   "dimension": "flarum_conventions",
+   "pattern": "FC-CONDITIONAL",
+   "title": "flarum/realtime integration found at runtime via its container binding, not wired with Extend\\Conditional",
+   "location": "src/Broadcaster.php:30, src/Broadcaster.php:46, src/Broadcaster.php:68",
+   "problem": "Broadcaster checks container->bound(\\Pusher\\Pusher::class) on every call and resolves flarum/realtime's internal Pusher binding itself, instead of an integration registered only while flarum-realtime is enabled.",
+   "fix": "Same pattern as TagVisibility: a Broadcaster interface bound to a null implementation, and a Pusher implementation bound inside Extend\\Conditional()->whenExtensionEnabled('flarum-realtime')."
+  },
+  {
+   "severity": "low",
+   "blocking": false,
+   "verified": true,
+   "dimension": "robustness",
+   "pattern": "PR-RACE",
+   "title": "Rate limits are read-then-write counters, copied four times",
+   "location": "src/Conversations.php:843, src/Api/UploadFileController.php:43, src/Groups.php:74, src/Search.php:50",
+   "problem": "cache->get() then cache->put(count + 1): concurrent requests read the same count, so a script firing in parallel bypasses the 20-message, 30-upload, 10-group and 30-search limits. The same 5 lines are duplicated in four classes.",
+   "fix": "One RateLimit helper: cache->add($key, 0, $ttl); if (cache->increment($key) > $max) throw FloodingException; read the limits from settings with Extend\\Settings defaults."
+  },
+  {
+   "severity": "low",
+   "blocking": false,
+   "verified": true,
+   "dimension": "robustness",
+   "pattern": "RB-GUARDS",
+   "title": "Reporting and opening conversations have no rate limit",
+   "location": "src/Reports.php:53, src/Conversations.php:78",
+   "problem": "Reports::file() inserts a report and alerts up to 50 moderators on every call, with no duplicate check per reporter and message; pair() creates a conversation row plus two participants for every user id posted, with no limit.",
+   "fix": "Use the RateLimit helper on both; refuse a second open report by the same reporter for the same message."
+  },
+  {
+   "severity": "low",
+   "blocking": false,
+   "verified": true,
+   "dimension": "robustness",
+   "pattern": "RB-GUARDS",
+   "title": "Legacy image-upload endpoint skips the upload limit and the file type check",
+   "location": "src/Api/UploadImageController.php:29, extend.php:53",
+   "problem": "POST /conversations/{id}/images has no 30-per-10-minutes limit (UploadFileController has) and passes Arr::get(...,'image') to Images::store() without an UploadedFileInterface check, so an array upload is a TypeError 500. The frontend never calls it.",
+   "fix": "Remove the route and controller (and Images::store), or route it through UploadFileController."
+  },
+  {
+   "severity": "low",
+   "blocking": false,
+   "verified": true,
+   "dimension": "production_risk",
+   "pattern": "PR-LIKE",
+   "title": "Leading-wildcard LIKE scans",
+   "location": "src/Search.php:80, src/Search.php:83, src/Api/DetailsController.php:60",
+   "problem": "Message search and the Links tab/filter use '%...%', which no index serves. Bounded by conversation_id and a page limit (commented in Search), but a member in many large rooms scans all of them.",
+   "fix": "Store a has_link flag when a message is sent (removes the two http LIKEs), and keep the word search documented or move it to a FULLTEXT index where the driver has one."
+  },
+  {
+   "severity": "low",
+   "blocking": false,
+   "verified": true,
+   "dimension": "production_risk",
+   "pattern": "PR-UNBOUNDED",
+   "title": "Search scope loads every conversation the member is in into one IN list",
+   "location": "src/Search.php:112",
+   "problem": "scope() loads c.* for every conversation and room the person ever joined, then passes all ids to whereIn(). Thousands of ids per search, and PostgreSQL's 65 535 bind limit is reachable.",
+   "fix": "Use a whereIn subquery on parley_participants and whereNotIn only the hidden rooms' ids."
+  },
+  {
+   "severity": "low",
+   "blocking": false,
+   "verified": true,
+   "dimension": "production_risk",
+   "pattern": "PR-NPLUS1",
+   "title": "Import commands query per channel/group and load whole tables into memory",
+   "location": "src/Console/ImportRamonCommand.php:49, src/Console/ImportRamonCommand.php:54, src/Console/ImportRamonCommand.php:55, src/Console/ImportRamonCommand.php:176, src/Console/ImportGroupMessagesCommand.php:56, src/Console/ImportGroupMessagesCommand.php:63, src/Console/ImportGroupMessagesCommand.php:64, src/Console/ImportGroupMessagesCommand.php:68, src/Console/ImportGroupMessagesCommand.php:138",
+   "problem": "Both importers get() every channel/group, then run 3-4 queries per item (members, existing, known keys, all messages), hold each channel's whole history in memory, and insert members one row at a time.",
+   "fix": "chunkById() over channels/groups, load members and existing rows for the chunk with whereIn + groupBy, and insert members in one insert(array)."
+  },
+  {
+   "severity": "low",
+   "blocking": false,
+   "verified": true,
+   "dimension": "production_risk",
+   "pattern": "PR-SCHEMA-RUNTIME",
+   "title": "Schema introspection per group inside the import loop",
+   "location": "src/Console/ImportGroupMessagesCommand.php:185",
+   "problem": "reactions() calls getSchemaBuilder()->hasTable('dialog_message_reactions') once per group.",
+   "fix": "Check it once in fire() and pass the answer in."
+  },
+  {
+   "severity": "low",
+   "blocking": false,
+   "verified": true,
+   "dimension": "production_risk",
+   "pattern": "PR-CONFIG",
+   "title": "Room logo and group photo size caps are hard-coded",
+   "location": "src/Api/RoomsController.php:94, src/GroupPhotos.php:20",
+   "problem": "5 MB appears as a literal in RoomsController (duplicating GroupPhotos::MAX_MB) while image/file caps are settings.",
+   "fix": "Make it a setting with an Extend\\Settings default, read in one place."
+  },
+  {
+   "severity": "low",
+   "blocking": false,
+   "verified": true,
+   "dimension": "flarum_conventions",
+   "pattern": "FC-SETTING-DEFAULTS",
+   "title": "Preference defaults repeated at the call site",
+   "location": "src/Gate.php:93, src/Gate.php:115, src/OnlineList.php:67, js/src/forum/index.tsx:111",
+   "problem": "parleyWhoCanMessage's default is registered in extend.php:79 and core's User::getPreferencesAttribute already merges registered defaults, yet getPreference('parleyWhoCanMessage', 'everyone'), getPreference('discloseOnline', true) and preferences()?.parleyWhoCanMessage || 'everyone' repeat them.",
+   "fix": "Drop the second argument / fallback."
+  },
+  {
+   "severity": "low",
+   "blocking": false,
+   "verified": true,
+   "dimension": "flarum_conventions",
+   "pattern": "FC-RAW-SQL",
+   "title": "Raw SQL fragments in the builder",
+   "location": "src/Conversations.php:274, src/Conversations.php:350, src/Rooms.php:173, src/Rooms.php:189, src/Rooms.php:356, src/Rooms.php:376",
+   "problem": "selectRaw('count(*) as n') in five grouped counts and a raw CASE for reordering rooms. All are warranted and commented (prefix-safe), but they are five copies of one idiom.",
+   "fix": "One helper (e.g. Aggregates::countPer(Builder, column)) holding the single selectRaw with its comment; reorder: per-row update() inside one transaction (rooms are few) or keep the CASE in that helper."
+  },
+  {
+   "severity": "low",
+   "blocking": false,
+   "verified": true,
+   "dimension": "production_risk",
+   "pattern": "FC-UNDECLARED-DEP",
+   "title": "PHP extensions used but not declared",
+   "location": "composer.json",
+   "problem": "RoomImages uses GD functions (imagecreatefromstring, \\GdImage) and three classes use finfo, but require has no ext-gd / ext-fileinfo; the README asks for GD in prose only.",
+   "fix": "Add \"ext-gd\": \"*\" and \"ext-fileinfo\": \"*\" to require."
+  },
+  {
+   "severity": "medium",
+   "blocking": false,
+   "verified": true,
+   "dimension": "technical_debt",
+   "pattern": "TD-LONG",
+   "title": "Functions over 50 lines (several over 100)",
+   "location": "js/src/admin/components/RoomsManager.tsx:68, js/src/forum/components/Details.tsx:68, js/src/forum/components/Composer.tsx:67, js/src/forum/components/MessageList.tsx:92, js/src/forum/components/Rail.tsx:21, src/Conversations.php:235, js/src/forum/components/MessageList.tsx:341, js/src/forum/components/InboxPage.tsx:516, js/src/forum/components/Parley.tsx:34, js/src/forum/components/NewConversationModal.tsx:56, js/src/forum/components/MessageList.tsx:481, js/src/forum/components/ChatWindow.tsx:70, js/src/forum/components/Parley.tsx:151, src/PresenceStore.php:58, js/src/admin/components/RoomsManager.tsx:253, src/Rooms.php:129, js/src/forum/state.tsx:161, js/src/forum/components/InboxPage.tsx:239, js/src/forum/components/InboxPage.tsx:147, src/Search.php:46, src/Console/ImportGroupMessagesCommand.php:91, js/src/forum/components/Details.tsx:235, js/src/forum/components/RoomRow.tsx:19, src/Api/ImageController.php:38, js/src/forum/components/ChatWindow.tsx:336, src/Groups.php:51, src/Conversations.php:423, js/src/forum/components/PersonRow.tsx:63, src/Console/ImportRamonCommand.php:37, js/src/forum/components/ForwardModal.tsx:58",
+   "problem": "30 functions exceed 50 lines; four view() methods are 144-168 lines (RoomsManager, Details, Composer, MessageList).",
+   "fix": "Split each into named sub-components/helpers under 50 lines, the >100-line view()s first."
+  },
+  {
+   "severity": "medium",
+   "blocking": false,
+   "verified": true,
+   "dimension": "technical_debt",
+   "pattern": "TD-LONG",
+   "title": "Files over 600 lines, one over 1 300",
+   "location": "js/src/forum/state.tsx, src/Conversations.php, js/src/forum/components/MessageList.tsx, js/src/forum/components/InboxPage.tsx",
+   "problem": "state.tsx is 1 360 lines (presence, realtime, queue, drafts, windows, rooms in one class), Conversations.php 890, MessageList.tsx 718, InboxPage.tsx 665.",
+   "fix": "Split by concern: state into presence/realtime/send-queue/windows modules; Conversations into ConversationReader (summaries, payloads), MessageSender (send/store/deliver) and ParticipantState (settings, read, typing)."
+  },
+  {
+   "severity": "low",
+   "blocking": false,
+   "verified": true,
+   "dimension": "technical_debt",
+   "pattern": "TD-DUPLICATION",
+   "title": "Copy-pasted logic",
+   "location": "src/Conversations.php:799, src/Conversations.php:749, src/Console/ImportRamonCommand.php:135",
+   "problem": "relationsBlock() is Relations::isBlockedEitherWay() verbatim; canSee() repeats find()'s room/participant check (line 121); the importer re-implements Rooms::uniqueSlug().",
+   "fix": "Call Relations::isBlockedEitherWay(), make canSee() and find() share one private check, and reuse Rooms::uniqueSlug() (make it public)."
+  },
+  {
+   "severity": "low",
+   "blocking": false,
+   "verified": true,
+   "dimension": "technical_debt",
+   "pattern": "TD-NESTING",
+   "title": "Nesting deeper than three levels",
+   "location": "src/RoomImages.php:206",
+   "problem": "The outline grow closure nests for/for/for/if four deep inside outline().",
+   "fix": "Extract the per-pixel max over the window into its own method."
+  },
+  {
+   "severity": "low",
+   "blocking": false,
+   "verified": true,
+   "dimension": "dead_code",
+   "pattern": "DC-COMMENT-MISMATCH",
+   "title": "Comments that name things that do not exist",
+   "location": "src/Images.php:26, migrations/2026_10_26_000001_add_inbox_state_to_parley_participants.php:18, src/PresenceStore.php:183",
+   "problem": "Images says 'FileController serves the rest' (it is ImageController); the migration says 'One of Labels::COLOURS' (it is Conversations::LABELS); PresenceStore has an orphaned docblock (@param int[] $userIds @return array<int,true>) sitting above shownOnlineAmong's real docblock while onlineAmong() has none.",
+   "fix": "Fix the two names and move the orphan docblock onto onlineAmong()."
+  },
+  {
+   "severity": "low",
+   "blocking": false,
+   "verified": true,
+   "dimension": "dead_code",
+   "pattern": "DC-UNUSED",
+   "title": "Unused aliases kept for old clients",
+   "location": "js/src/forum/api.ts:117, extend.php:69",
+   "problem": "api.imageUrl() is never called and GET /parley/images/{id} duplicates /files/{id}; the frontend only uses fileUrl().",
+   "fix": "Remove both (or say in a comment which client still needs them)."
+  },
+  {
+   "severity": "low",
+   "blocking": false,
+   "verified": true,
+   "dimension": "dead_code",
+   "pattern": "DC-UNUSED",
+   "title": "Duplicated where clause",
+   "location": "src/Conversations.php:687",
+   "problem": "markRead() applies ->where('conversation_id', $conversation->id) twice.",
+   "fix": "Remove the second one."
+  }
+ ],
+ "watch": [
+  {
+   "title": "Group photos on the public flarum-assets disk",
+   "severity": "low",
+   "dimension": "security",
+   "why": "Private groups' photos are fetchable by anyone with the URL (128-bit random names, like avatars). Defensible; move to the private Parley disk + ImageController if you want zero exposure."
+  },
+  {
+   "title": "Silent errorHandler in background requests",
+   "severity": "low",
+   "dimension": "robustness",
+   "why": "js/src/forum/api.ts:30,49,58,68,86 drop errors for heartbeat/polls/actions; one file and documented (the queue retries sends). Floxum charges silent UI catches ~15%."
+  },
+  {
+   "title": "sendBeacon bypasses app.request",
+   "severity": "low",
+   "dimension": "flarum_conventions",
+   "why": "js/src/forum/api.ts:56; needed on page unload, carries csrfToken. Add a one-line reason if not already obvious."
+  },
+  {
+   "title": "Heartbeat does ~15 queries per member every 30 s",
+   "severity": "low",
+   "dimension": "production_risk",
+   "why": "Fixed count and documented, but rooms listFor + unreadCounts + online list each beat; a reviewer may call it heavy on big forums. Caching rooms list per viewer for 30 s would cut it."
+  },
+  {
+   "title": "Importers check source tables with hasTable once per run",
+   "severity": "low",
+   "dimension": "production_risk",
+   "why": "ImportRamonCommand.php:39, ImportGroupMessagesCommand.php:49: correct for an importer (source extension may be uninstalled). Only the per-group check at :185 is listed as a finding."
+  },
+  {
+   "title": "ernestdefoe/parley-calls suggested but not in optional-dependencies",
+   "severity": "low",
+   "dimension": "flarum_conventions",
+   "why": "Parley never references Parley Calls (the dependency runs the other way), so adding it would be wrong; trapcheck hint only."
+  },
+  {
+   "title": "Presence prune both queued from the heartbeat and scheduled",
+   "severity": "low",
+   "dimension": "dead_code",
+   "why": "Redundant but documented (works without cron). Could drop one."
+  },
+  {
+   "title": "People singleton caches users for the process",
+   "severity": "low",
+   "dimension": "architecture",
+   "why": "PHP-FPM = one request, so fine today; in a queue worker or Octane it would serve stale names/groups (KEEP 300). Nothing queued uses it yet."
+  },
+  {
+   "title": "No flarum/gdpr export or erasure for messages, presence, follows, blocks",
+   "severity": "low",
+   "dimension": "production_risk",
+   "why": "Not in the reviewer rules; Floxum has not charged it elsewhere."
+  },
+  {
+   "title": "Migrations purge with Container::getInstance()",
+   "severity": "low",
+   "dimension": "flarum_conventions",
+   "why": "Static migration closures, so resolving is allowed by the rules."
+  },
+  {
+   "title": "Send nonce dedupe is check-then-store",
+   "severity": "low",
+   "dimension": "robustness",
+   "why": "Two simultaneous retries with the same nonce can both create a message (Conversations.php:498/521). Rare; cache->add on the nonce key would close it."
+  },
+  {
+   "title": "Moderators read report snapshots from tag-restricted rooms they cannot see",
+   "severity": "low",
+   "dimension": "security",
+   "why": "By design (staff review reports), but Reports::open() does not check room visibility."
+  }
+ ]
+}
