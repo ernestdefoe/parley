@@ -37,7 +37,7 @@ class ImportRamonTest extends ConsoleTestCase
 
         // ...so what the import wrote was committed too: take it away, or
         // the next run's fixtures collide with it.
-        if ($this->database()->getDriverName() === 'mysql') {
+        if (in_array($this->database()->getDriverName(), ['mysql', 'mariadb'], true)) {
             foreach (['parley_reactions', 'parley_pins', 'parley_messages', 'parley_participants', 'parley_conversations'] as $table) {
                 $this->database()->table($table)->delete();
             }
