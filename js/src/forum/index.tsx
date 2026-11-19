@@ -5,11 +5,9 @@ import Button from 'flarum/common/components/Button';
 import UserControls from 'flarum/forum/utils/UserControls';
 import ParleyState from './state';
 import Parley from './components/Parley';
-import MessageNotification from './components/MessageNotification';
-import ReportNotification from './components/ReportNotification';
-import RoomMentionNotification from './components/RoomMentionNotification';
 import api from './api';
 
+export { default as extend } from './extend';
 export { default as ParleyState } from './state';
 export { default as ChatWindow } from './components/ChatWindow';
 export { default as PersonRow } from './components/PersonRow';
@@ -19,20 +17,6 @@ export { default as Icons } from './icons';
 const t = (key, params) => app.translator.trans('ernestdefoe-parley.forum.' + key, params);
 
 app.initializers.add('ernestdefoe-parley', () => {
-  /*
-   * 🚨 Not /messages: flarum/messages owns it, and two routes on one path stop
-   * the whole forum booting. Not /chat either, which ramon/chat holds while
-   * both are installed during a switch-over.
-   */
-  // The messenger loads when someone first goes there, never with other pages.
-  const InboxPage = () => import('./components/InboxPage');
-  app.routes['parley.inbox'] = { path: '/parley', component: InboxPage };
-  app.routes['parley.conversation'] = { path: '/parley/:id', component: InboxPage };
-
-  app.notificationComponents.parleyMessage = MessageNotification;
-  app.notificationComponents.parleyReport = ReportNotification;
-  app.notificationComponents.parleyRoomMention = RoomMentionNotification;
-
   /*
    * 🚨 Started from `mount`, not from the initializer. `app.forum` and the
    * session are filled in while the app boots, AFTER initializers run, and a

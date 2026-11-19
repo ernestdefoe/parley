@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { initials, linkParts, runPosition, needsDivider, tally, placeFromPath, windowsThatFit } from '../src/forum/util.js';
+import { initials, linkParts, runPosition, needsDivider, tally, placeFromPath, windowsThatFit } from '../src/forum/util.ts';
 
 const at = (min) => new Date(Date.UTC(2026, 9, 2, 12, min)).toISOString();
 
@@ -61,7 +61,7 @@ test('windows that fit beside the rail', () => {
   assert.equal(windowsThatFit(600, 0), 1);
 });
 
-import { mentionParts } from '../src/forum/util.js';
+import { mentionParts } from '../src/forum/util.ts';
 
 test('mentions are split out, emails are not', () => {
   assert.deepEqual(mentionParts('hey @BuckeyeBrian, look'), ['hey ', { username: 'BuckeyeBrian' }, ', look']);
@@ -69,7 +69,7 @@ test('mentions are split out, emails are not', () => {
   assert.deepEqual(mentionParts('@Rae first'), [{ username: 'Rae' }, ' first']);
 });
 
-import { readableOn } from '../src/forum/util.js';
+import { readableOn } from '../src/forum/util.ts';
 
 test('a logo is white on dark tag colours and dark on light ones', () => {
   assert.equal(readableOn('#22356B'), '#ffffff'); // SEC navy
