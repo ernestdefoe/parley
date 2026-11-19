@@ -203,7 +203,8 @@ class Groups
     public function members(object $group): array
     {
         $rows = $this->db->table('parley_participants')->where('conversation_id', $group->id)
-            ->orderByRaw($this->db->getQueryGrammar()->wrap('role').' = ? desc', ['owner'])->orderBy('id')
+            // The owner first: the roles are 'owner' and 'member', so descending puts it there.
+            ->orderByDesc('role')->orderBy('id')
             ->get(['user_id', 'role']);
 
         $users = $this->people->users($rows->pluck('user_id')->all());

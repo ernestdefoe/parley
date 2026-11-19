@@ -1,0 +1,7 @@
+/.github export-ignore
+/tests export-ignore
+/tools export-ignore
+/js/tests export-ignore
+/phpstan.neon export-ignore
+/.styleci.yml export-ignore
+/CLAUDE.md export-ignore
