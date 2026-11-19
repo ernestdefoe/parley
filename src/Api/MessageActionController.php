@@ -3,6 +3,7 @@
 namespace Ernestdefoe\Parley\Api;
 
 use Ernestdefoe\Parley\Conversations;
+use Ernestdefoe\Parley\Gate;
 use Ernestdefoe\Parley\Pins;
 use Flarum\User\User;
 use Psr\Http\Message\ServerRequestInterface;
@@ -11,6 +12,7 @@ use Psr\Http\Message\ServerRequestInterface;
 class MessageActionController extends Controller
 {
     public function __construct(
+        protected Gate $gate,
         protected Conversations $conversations,
         protected Pins $pins
     ) {

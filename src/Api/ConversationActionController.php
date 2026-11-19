@@ -3,6 +3,7 @@
 namespace Ernestdefoe\Parley\Api;
 
 use Ernestdefoe\Parley\Conversations;
+use Ernestdefoe\Parley\Gate;
 use Flarum\Http\Exception\RouteNotFoundException;
 use Flarum\User\User;
 use Illuminate\Support\Arr;
@@ -12,6 +13,7 @@ use Psr\Http\Message\ServerRequestInterface;
 class ConversationActionController extends Controller
 {
     public function __construct(
+        protected Gate $gate,
         protected Conversations $conversations
     ) {
     }

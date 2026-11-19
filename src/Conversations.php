@@ -56,7 +56,8 @@ class Conversations
         protected NotificationSyncer $notifications,
         protected TranslatorInterface $translator,
         protected Cache $cache,
-        protected Rooms $rooms
+        protected Rooms $rooms,
+        protected GroupPhotos $photos
     ) {
     }
 
@@ -304,7 +305,7 @@ class Conversations
                 'room' => $isRoom ? $this->rooms->card($row) : null,
                 'isGroup' => $isGroup,
                 'title' => $isRoom ? $row->title : ($row->title ?: null),
-                'imageUrl' => $isGroup ? $this->photos()->url($row->image_path ?? null) : null,
+                'imageUrl' => $isGroup ? $this->photos->url($row->image_path ?? null) : null,
                 'participants' => $others,
                 'memberCount' => $isRoom ? null : $memberCount,
                 'role' => $role,
@@ -325,11 +326,6 @@ class Conversations
         }
 
         return $out;
-    }
-
-    private function photos(): GroupPhotos
-    {
-        return resolve(GroupPhotos::class);
     }
 
     /** A column for raw SQL, prefixed and quoted the way the query builder would. */

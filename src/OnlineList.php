@@ -3,6 +3,7 @@
 namespace Ernestdefoe\Parley;
 
 use Carbon\Carbon;
+use Ernestdefoe\Parley\Tags\TagVisibility;
 use Flarum\Discussion\Discussion;
 use Flarum\Http\SlugManager;
 use Flarum\User\User;
@@ -24,7 +25,8 @@ class OnlineList
         protected Gate $gate,
         protected People $people,
         protected SlugManager $slugs,
-        protected Rooms $rooms
+        protected Rooms $rooms,
+        protected TagVisibility $tags
     ) {
     }
 
@@ -211,10 +213,6 @@ class OnlineList
     /** @return array<int, array{name: string, slug: string}> */
     private function tags(User $viewer, array $rowsByUser): array
     {
-        if (! class_exists(\Flarum\Tags\Tag::class)) {
-            return [];
-        }
-
         $ids = [];
         foreach ($rowsByUser as $row) {
             if ($row->tag_id) {
@@ -222,15 +220,6 @@ class OnlineList
             }
         }
 
-        if ($ids === []) {
-            return [];
-        }
-
-        $out = [];
-        foreach (\Flarum\Tags\Tag::whereVisibleTo($viewer)->whereIn('tags.id', array_keys($ids))->get(['id', 'name', 'slug']) as $tag) {
-            $out[(int) $tag->id] = ['name' => $tag->name, 'slug' => $tag->slug];
-        }
-
-        return $out;
+        return $this->tags->named($viewer, array_keys($ids));
     }
 }

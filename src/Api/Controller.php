@@ -20,6 +20,21 @@ use Psr\Http\Server\RequestHandlerInterface;
  */
 abstract class Controller implements RequestHandlerInterface
 {
+    /**
+     * Each of Parley's controllers takes it in its constructor. A subclass in
+     * another extension (Parley Calls) that predates that gets it from
+     * ParleyServiceProvider instead, through withGate().
+     */
+    protected Gate $gate;
+
+    /** @internal for ParleyServiceProvider */
+    public function withGate(Gate $gate): void
+    {
+        if (! isset($this->gate)) {
+            $this->gate = $gate;
+        }
+    }
+
     abstract protected function respond(ServerRequestInterface $request, User $actor): mixed;
 
     public function handle(ServerRequestInterface $request): ResponseInterface
@@ -40,7 +55,7 @@ abstract class Controller implements RequestHandlerInterface
             throw new NotAuthenticatedException();
         }
 
-        if (! resolve(Gate::class)->canUse($actor)) {
+        if (! $this->gate->canUse($actor)) {
             throw new PermissionDeniedException();
         }
     }

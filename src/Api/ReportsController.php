@@ -15,6 +15,7 @@ use Psr\Http\Message\ServerRequestInterface;
 class ReportsController extends Controller
 {
     public function __construct(
+        protected Gate $gate,
         protected Reports $reports
     ) {
     }

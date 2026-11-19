@@ -25,7 +25,9 @@ class Broadcaster
 
     public function available(): bool
     {
-        return class_exists(\Pusher\Pusher::class) && $this->container->bound(\Pusher\Pusher::class);
+        // flarum/realtime binds the client; bound() loads no class, so this is
+        // safe on a forum without it.
+        return $this->container->bound(\Pusher\Pusher::class);
     }
 
     /**

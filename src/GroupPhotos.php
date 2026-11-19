@@ -32,33 +32,25 @@ class GroupPhotos
     /** @return string the stored path, relative to the assets disk */
     public function store(UploadedFileInterface $upload, ?string $replacing): string
     {
-        $tmp = tempnam(sys_get_temp_dir(), 'parley');
-
-        try {
-            if ($upload->getError() !== UPLOAD_ERR_OK || $upload->getSize() > self::MAX_MB * 1024 * 1024) {
-                $this->fail();
-            }
-
-            $upload->moveTo($tmp);
-            $path = $this->storeFile($tmp);
-        } finally {
-            @unlink($tmp);
+        if ($upload->getError() !== UPLOAD_ERR_OK || $upload->getSize() > self::MAX_MB * 1024 * 1024) {
+            $this->fail();
         }
 
+        $path = $this->storeBytes((string) $upload->getStream());
         $this->remove($replacing);
 
         return $path;
     }
 
-    /** Keep a picture already on disk as a group photo; the file itself is left alone. */
-    public function storeFile(string $file): string
+    /** Keep a picture's bytes as a group photo. */
+    public function storeBytes(string $bytes): string
     {
-        $mime = (new \finfo(FILEINFO_MIME_TYPE))->file($file) ?: '';
-        if (! isset(Images::TYPES[$mime]) || ! @getimagesize($file) || filesize($file) > self::MAX_MB * 1024 * 1024) {
+        $mime = (new \finfo(FILEINFO_MIME_TYPE))->buffer($bytes) ?: '';
+        if (! isset(Images::TYPES[$mime]) || strlen($bytes) > self::MAX_MB * 1024 * 1024 || ! @getimagesizefromstring($bytes)) {
             $this->fail();
         }
 
-        $image = $this->images->read($file);
+        $image = $this->images->read($bytes);
         $image->cover(self::SIZE, self::SIZE);
         $path = 'parley/groups/'.bin2hex(random_bytes(16)).'.webp';
         $this->disk()->put($path, (string) $image->toWebp(85));

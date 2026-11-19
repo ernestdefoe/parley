@@ -10,7 +10,7 @@ use Illuminate\Database\Schema\Builder;
 return [
     'up' => function (Builder $schema) {
         $schema->table('parley_conversations', function (Blueprint $table) {
-            $table->string('owner', 64)->nullable()->after('parent_id');
+            $table->string('owner', 64)->nullable();
         });
     },
     'down' => function (Builder $schema) {

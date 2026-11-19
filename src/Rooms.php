@@ -3,6 +3,7 @@
 namespace Ernestdefoe\Parley;
 
 use Carbon\Carbon;
+use Ernestdefoe\Parley\Tags\TagVisibility;
 use Flarum\Foundation\ValidationException;
 use Flarum\Locale\TranslatorInterface;
 use Flarum\User\User;
@@ -50,7 +51,9 @@ class Rooms
         protected ConnectionInterface $db,
         protected Gate $gate,
         protected PresenceStore $presence,
-        protected TranslatorInterface $translator
+        protected TranslatorInterface $translator,
+        protected RoomImages $images,
+        protected TagVisibility $tags
     ) {
     }
 
@@ -219,8 +222,8 @@ class Rooms
             'slug' => $room->slug,
             'description' => $room->description,
             'emoji' => $room->emoji,
-            'imageUrl' => ! empty($room->image_path) ? resolve(RoomImages::class)->url($room->image_path) : null,
-            'imageDarkUrl' => ! empty($room->image_dark_path) ? resolve(RoomImages::class)->url($room->image_dark_path) : null,
+            'imageUrl' => ! empty($room->image_path) ? $this->images->url($room->image_path) : null,
+            'imageDarkUrl' => ! empty($room->image_dark_path) ? $this->images->url($room->image_dark_path) : null,
             'parentId' => ! empty($room->parent_id) ? (int) $room->parent_id : null,
             'tagId' => $room->tag_id ? (int) $room->tag_id : null,
             // The tag's own icon and colour, so a room with no emoji wears its
@@ -337,14 +340,25 @@ class Rooms
     /** @param  int[]  $ids  in their new order */
     public function reorder(array $ids): void
     {
-        foreach (array_values($ids) as $i => $id) {
-            $this->db->table('parley_conversations')->where('type', 'room')->where('id', (int) $id)->update(['position' => $i]);
+        $ids = array_values(array_unique(array_map('intval', $ids)));
+        if ($ids === []) {
+            return;
         }
+
+        // One UPDATE with a CASE, not one per room. Every id and position is
+        // an int (intval above, array keys), so they are written in as numbers.
+        $case = 'case '.$this->db->getQueryGrammar()->wrap('id');
+        foreach ($ids as $i => $id) {
+            $case .= " when $id then $i";
+        }
+
+        $this->db->table('parley_conversations')->where('type', 'room')->whereIn('id', $ids)
+            ->update(['position' => $this->db->raw($case.' end')]);
     }
 
     public function destroy(object $room): void
     {
-        resolve(RoomImages::class)->remove($room);
+        $this->images->remove($room);
         // Its teams move up a level rather than disappearing with it.
         $this->db->table('parley_conversations')->where('parent_id', $room->id)->update(['parent_id' => null]);
         $this->db->table('parley_conversations')->where('id', $room->id)->where('type', 'room')->delete();
@@ -386,14 +400,7 @@ class Rooms
     /** @return array<int, true> */
     private function tagsVisibleTo(User $user): array
     {
-        if (! class_exists(\Flarum\Tags\Tag::class)) {
-            return [];
-        }
-
-        return $this->visibleTags[(int) $user->id] ??= array_fill_keys(
-            \Flarum\Tags\Tag::whereVisibleTo($user)->pluck('tags.id')->map(fn ($id) => (int) $id)->all(),
-            true
-        );
+        return $this->visibleTags[(int) $user->id] ??= array_fill_keys($this->tags->visibleIds($user), true);
     }
 
     /**
@@ -404,14 +411,7 @@ class Rooms
      */
     private function tagLook(int $tagId): array
     {
-        if ($this->tagLooks === null) {
-            $this->tagLooks = [];
-            if ($this->db->getSchemaBuilder()->hasTable('tags')) {
-                foreach ($this->db->table('tags')->get(['id', 'icon', 'color']) as $tag) {
-                    $this->tagLooks[(int) $tag->id] = ['icon' => $tag->icon ?: null, 'color' => $tag->color ?: null];
-                }
-            }
-        }
+        $this->tagLooks ??= $this->tags->looks();
 
         return $this->tagLooks[$tagId] ?? ['icon' => null, 'color' => null];
     }

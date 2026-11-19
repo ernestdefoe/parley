@@ -3,7 +3,10 @@
 namespace Ernestdefoe\Parley\Api;
 
 use Ernestdefoe\Parley\Conversations;
+use Ernestdefoe\Parley\Gate;
 use Ernestdefoe\Parley\Groups;
+use Flarum\Foundation\ValidationException;
+use Flarum\Locale\TranslatorInterface;
 use Flarum\User\User;
 use Illuminate\Support\Arr;
 use Psr\Http\Message\ServerRequestInterface;
@@ -18,8 +21,10 @@ use Psr\Http\Message\ServerRequestInterface;
 class GroupsController extends Controller
 {
     public function __construct(
+        protected Gate $gate,
         protected Groups $groups,
-        protected Conversations $conversations
+        protected Conversations $conversations,
+        protected TranslatorInterface $translator
     ) {
     }
 
@@ -41,7 +46,7 @@ class GroupsController extends Controller
 
         match ($route) {
             'ernestdefoe-parley.groups.rename' => $this->groups->rename($group, $actor, $this->input($request, 'name')),
-            'ernestdefoe-parley.groups.photo' => $this->groups->setPhoto($group, $actor, $this->file($request) ?? throw new \Flarum\Foundation\ValidationException(['photo' => resolve(\Flarum\Locale\TranslatorInterface::class)->trans('ernestdefoe-parley.api.no_file')])),
+            'ernestdefoe-parley.groups.photo' => $this->groups->setPhoto($group, $actor, $this->file($request) ?? throw new ValidationException(['photo' => $this->translator->trans('ernestdefoe-parley.api.no_file')])),
             'ernestdefoe-parley.groups.photo.delete' => $this->groups->setPhoto($group, $actor, null),
             'ernestdefoe-parley.groups.members.add' => $this->groups->add($group, $actor, (array) $this->input($request, 'userIds', [])),
             'ernestdefoe-parley.groups.members.remove' => $this->groups->remove($group, $actor, $this->routeId($request, 'userId')),

@@ -3,6 +3,7 @@
 namespace Ernestdefoe\Parley\Api;
 
 use Ernestdefoe\Parley\Conversations;
+use Ernestdefoe\Parley\Gate;
 use Ernestdefoe\Parley\Images;
 use Flarum\User\User;
 use GuzzleHttp\Psr7\LimitStream;
@@ -28,6 +29,7 @@ use Psr\Http\Message\ServerRequestInterface;
 class ImageController extends Controller
 {
     public function __construct(
+        protected Gate $gate,
         protected Conversations $conversations,
         protected Images $images
     ) {
@@ -46,13 +48,12 @@ class ImageController extends Controller
 
         $meta = json_decode((string) $message->meta, true) ?: [];
         $file = (string) ($meta['file'] ?? '');
-        $path = $this->images->path($file);
-
-        if (! $path) {
+        if (! $this->images->stored($file)) {
             throw new ModelNotFoundException();
         }
 
-        $size = (int) filesize($path);
+        $disk = $this->images->disk();
+        $size = $disk->size($file);
         $type = $this->images->servedType($file);
         $name = (string) ($meta['name'] ?? basename($file));
         $disposition = $message->type === 'file' ? 'attachment' : 'inline';
@@ -66,7 +67,7 @@ class ImageController extends Controller
             ->withHeader('X-Content-Type-Options', 'nosniff')
             ->withHeader('Content-Security-Policy', "default-src 'none'; sandbox");
 
-        $stream = new Stream($path, 'r');
+        $stream = new Stream($disk->readStream($file) ?? throw new ModelNotFoundException());
         $range = $request->getHeaderLine('Range');
 
         if ($range && preg_match('/^bytes=(\d*)-(\d*)$/', trim($range), $m) && ($m[1] !== '' || $m[2] !== '')) {

@@ -65,21 +65,21 @@ class RoomImages
     }
 
     /**
-     * Store a logo for a room from a file on disk, replacing any before it.
+     * Store a logo for a room from an image's bytes, replacing any before it.
      *
      * $variant 'light' is the logo itself. 'dark' is a version drawn for dark
      * backgrounds — ESPN publishes one for most teams. When there is no dark
      * version of its own, one is made from the light logo if, and only if, it
      * would not read on a dark tile (see needsOutline()).
      */
-    public function set(object $room, string $file, string $variant = 'light'): string
+    public function set(object $room, string $bytes, string $variant = 'light'): string
     {
-        $mime = (new \finfo(FILEINFO_MIME_TYPE))->file($file) ?: '';
-        if (! in_array($mime, self::TYPES, true) || ! @getimagesize($file)) {
+        $mime = (new \finfo(FILEINFO_MIME_TYPE))->buffer($bytes) ?: '';
+        if (! in_array($mime, self::TYPES, true) || ! @getimagesizefromstring($bytes)) {
             throw new ValidationException(['image' => $this->translator->trans('ernestdefoe-parley.api.room_image_type')]);
         }
 
-        $img = $this->redraw($file);
+        $img = $this->redraw($bytes);
 
         // A dark version is trusted as drawn, unless nothing in it stands out
         // from the dark tile — ESPN's dark Arkansas hog is dark red on dark.
@@ -253,9 +253,9 @@ class RoomImages
         return (string) ob_get_clean();
     }
 
-    private function redraw(string $file): \GdImage
+    private function redraw(string $bytes): \GdImage
     {
-        $src = @imagecreatefromstring((string) file_get_contents($file));
+        $src = @imagecreatefromstring($bytes);
         if (! $src) {
             throw new ValidationException(['image' => $this->translator->trans('ernestdefoe-parley.api.room_image_type')]);
         }

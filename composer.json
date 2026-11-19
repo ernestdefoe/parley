@@ -19,11 +19,14 @@
     ],
     "require": {
         "php": "^8.3",
-        "flarum/core": "^2.0"
+        "flarum/core": "^2.0",
+        "guzzlehttp/guzzle": "^7.0",
+        "intervention/image": "^3.2"
     },
     "suggest": {
         "flarum/realtime": "Delivers messages, typing and read receipts instantly. Without it Parley polls every 5 seconds.",
-        "ernestdefoe/parley-calls": "Voice and video calls, screen share and picture-in-picture."
+        "ernestdefoe/parley-calls": "Voice and video calls, screen share and picture-in-picture.",
+        "flarum/tags": "Rooms tied to a tag, visible only to people who can see that tag, and the tag beside someone in the online list."
     },
     "autoload": {
         "psr-4": {
@@ -43,7 +46,13 @@
                 "name": "fas fa-comments",
                 "backgroundColor": "#2a5fe0",
                 "color": "#fff"
-            }
+            },
+            "optional-dependencies": [
+                "flarum/realtime",
+                "flarum/tags",
+                "ernestdefoe/group-messages",
+                "ramon/chat"
+            ]
         },
         "branch-alias": {
             "dev-main": "1.x-dev"
@@ -52,7 +61,8 @@
     "require-dev": {
         "flarum/phpstan": "^2.0",
         "flarum/testing": "^2.0",
-        "pusher/pusher-php-server": "^7.2"
+        "pusher/pusher-php-server": "^7.2",
+        "flarum/tags": "^2.0"
     },
     "scripts": {
         "test": [

@@ -46,7 +46,7 @@ foreach ($conferenceTags as $ctag) {
     if (! $conf && $createConferences) {
         $conf = $rooms->save(null, ['name' => $ctag->name, 'tagId' => $ctag->id]);
         if ($f = $fetch("https://a.espncdn.com/i/teamlogos/ncaa_conf/500/{$espnConf[$ctag->name]}.png")) {
-            $images->set($conf, $f);
+            $images->set($conf, file_get_contents($f));
             @unlink($f);
         }
     }
@@ -59,7 +59,7 @@ foreach ($conferenceTags as $ctag) {
     $confRow = $fresh((int) $conf->id);
     if ($confRow->image_path && (! $confRow->image_dark_path || str_contains($confRow->image_dark_path, '-dark-auto-'))) {
         if ($f = $fetch("https://a.espncdn.com/i/teamlogos/ncaa_conf/500-dark/{$espnConf[$ctag->name]}.png")) {
-            $images->set($confRow, $f, 'dark');
+            $images->set($confRow, file_get_contents($f), 'dark');
             @unlink($f);
             $darks++;
         } elseif (! $confRow->image_dark_path) {
@@ -69,7 +69,7 @@ foreach ($conferenceTags as $ctag) {
             if (is_file($own)) {
                 $copy = tempnam(sys_get_temp_dir(), 'logo');
                 copy($own, $copy);
-                $images->set($confRow, $copy);
+                $images->set($confRow, file_get_contents($copy));
                 @unlink($copy);
             }
         }
@@ -100,11 +100,11 @@ foreach ($conferenceTags as $ctag) {
             $missing[] = $ttag->name;
             continue;
         }
-        $images->set($room, $f);
+        $images->set($room, file_get_contents($f));
         @unlink($f);
         $logos++;
         if ($dark && str_starts_with($dark, 'http') && ($f = $fetch($dark))) {
-            $images->set($fresh((int) $room->id), $f, 'dark');
+            $images->set($fresh((int) $room->id), file_get_contents($f), 'dark');
             @unlink($f);
             $darks++;
         }

@@ -6,7 +6,8 @@ use Illuminate\Database\Schema\Blueprint;
 /*
  * One row per visitor, rewritten by every heartbeat. A member is online while
  * their row is younger than the presence window; a guest is counted, never
- * listed. Rows are pruned on write, so no scheduled task is needed.
+ * listed. Stale rows are pruned by a queued job, at most every ten minutes,
+ * and by the parley:prune-presence schedule.
  */
 return Migration::createTable('parley_presence', function (Blueprint $table) {
     $table->increments('id');

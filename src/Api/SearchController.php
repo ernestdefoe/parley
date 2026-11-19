@@ -2,6 +2,7 @@
 
 namespace Ernestdefoe\Parley\Api;
 
+use Ernestdefoe\Parley\Gate;
 use Ernestdefoe\Parley\Search;
 use Flarum\User\User;
 use Psr\Http\Message\ServerRequestInterface;
@@ -10,6 +11,7 @@ use Psr\Http\Message\ServerRequestInterface;
 class SearchController extends Controller
 {
     public function __construct(
+        protected Gate $gate,
         protected Search $search
     ) {
     }

@@ -55,7 +55,7 @@ class Search
 
         $words = trim((string) ($filters['q'] ?? ''));
         $type = $filters['type'] ?? null;
-        $type = isset(self::TYPES[$type]) ? $type : null;
+        $type = is_string($type) && isset(self::TYPES[$type]) ? $type : null;
 
         $scope = ! empty($filters['conversation'])
             ? [(int) $this->conversations->find((int) $filters['conversation'], $actor)->id]
@@ -72,6 +72,9 @@ class Search
             ->whereIn('type', $type ? self::TYPES[$type] : Conversations::CONTENT);
 
         if ($words !== '') {
+            // A word can be anywhere in a message, so this cannot be a prefix
+            // match. It only ever scans the searcher's own conversations
+            // (conversation_id is indexed), newest first, one page at a time.
             // PostgreSQL's LIKE minds case; MySQL's and SQLite's do not.
             $like = $this->db->getDriverName() === 'pgsql' ? 'ilike' : 'like';
             $q->where('body', $like, '%'.addcslashes($words, '%_\\').'%');
@@ -117,14 +120,10 @@ class Search
 
     private function date(?string $value): ?Carbon
     {
-        if (! $value || ! preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)) {
+        if (! $value || ! preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $value, $m) || ! checkdate((int) $m[2], (int) $m[3], (int) $m[1])) {
             return null;
         }
 
-        try {
-            return Carbon::parse($value);
-        } catch (\Throwable) {
-            return null;
-        }
+        return Carbon::createFromDate((int) $m[1], (int) $m[2], (int) $m[3]);
     }
 }

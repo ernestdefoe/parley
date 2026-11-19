@@ -3,8 +3,12 @@
 namespace Ernestdefoe\Parley\Api;
 
 use Ernestdefoe\Parley\Conversations;
+use Ernestdefoe\Parley\Gate;
+use Ernestdefoe\Parley\RoomImages;
 use Ernestdefoe\Parley\Rooms;
+use Flarum\Foundation\ValidationException;
 use Flarum\Http\Exception\RouteNotFoundException;
+use Flarum\Locale\TranslatorInterface;
 use Flarum\User\User;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Psr\Http\Message\ServerRequestInterface;
@@ -16,8 +20,11 @@ use Psr\Http\Message\ServerRequestInterface;
 class RoomsController extends Controller
 {
     public function __construct(
+        protected Gate $gate,
         protected Rooms $rooms,
-        protected Conversations $conversations
+        protected Conversations $conversations,
+        protected RoomImages $images,
+        protected TranslatorInterface $translator
     ) {
     }
 
@@ -85,17 +92,10 @@ class RoomsController extends Controller
         $file = \Illuminate\Support\Arr::get($request->getUploadedFiles(), 'image');
 
         if (! $file || $file->getError() !== UPLOAD_ERR_OK || $file->getSize() > 5 * 1024 * 1024) {
-            throw new \Flarum\Foundation\ValidationException(['image' => resolve(\Flarum\Locale\TranslatorInterface::class)->trans('ernestdefoe-parley.api.room_image_type')]);
+            throw new ValidationException(['image' => $this->translator->trans('ernestdefoe-parley.api.room_image_type')]);
         }
 
-        $tmp = tempnam(sys_get_temp_dir(), 'parley-room');
-        $file->moveTo($tmp);
-
-        try {
-            resolve(\Ernestdefoe\Parley\RoomImages::class)->set($room, $tmp, $this->query($request, 'variant') === 'dark' ? 'dark' : 'light');
-        } finally {
-            @unlink($tmp);
-        }
+        $this->images->set($room, (string) $file->getStream(), $this->query($request, 'variant') === 'dark' ? 'dark' : 'light');
 
         return ['rooms' => $this->rooms->all()];
     }
@@ -103,7 +103,7 @@ class RoomsController extends Controller
     private function removeImage(ServerRequestInterface $request): array
     {
         $variant = $this->query($request, 'variant');
-        resolve(\Ernestdefoe\Parley\RoomImages::class)->remove($this->room($request), in_array($variant, ['light', 'dark'], true) ? $variant : 'both');
+        $this->images->remove($this->room($request), in_array($variant, ['light', 'dark'], true) ? $variant : 'both');
 
         return ['rooms' => $this->rooms->all()];
     }

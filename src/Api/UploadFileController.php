@@ -3,6 +3,7 @@
 namespace Ernestdefoe\Parley\Api;
 
 use Ernestdefoe\Parley\Conversations;
+use Ernestdefoe\Parley\Gate;
 use Ernestdefoe\Parley\Images;
 use Flarum\Foundation\ValidationException;
 use Flarum\Locale\TranslatorInterface;
@@ -19,6 +20,7 @@ use Psr\Http\Message\UploadedFileInterface;
 class UploadFileController extends Controller
 {
     public function __construct(
+        protected Gate $gate,
         protected Conversations $conversations,
         protected Images $files,
         protected TranslatorInterface $translator,

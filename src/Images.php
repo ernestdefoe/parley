@@ -7,14 +7,17 @@ use Flarum\Foundation\ValidationException;
 use Flarum\Locale\TranslatorInterface;
 use Flarum\Settings\SettingsRepositoryInterface;
 use Illuminate\Contracts\Container\Container;
+use Illuminate\Contracts\Filesystem\Factory;
+use Illuminate\Contracts\Filesystem\Filesystem;
 use Intervention\Image\ImageManager;
 use Psr\Http\Message\UploadedFileInterface;
 
 /**
  * Pictures, voice notes, videos and files sent in a conversation.
  *
- * Stored under storage/, outside the web root, and only ever served through
- * FileController after it checks the viewer may read the conversation. A
+ * Stored on Parley's own disk (DISK: storage/parley, outside the web root,
+ * unless the forum points it at another driver), and only ever served through
+ * ImageController after it checks the viewer may read the conversation. A
  * conversation is private; what is sent in it is too, not merely unlisted.
  *
  * 🚨 The type is read from the bytes, never from the name or the browser's
@@ -100,8 +103,11 @@ class Images
     /** The shape of every name store() gives a file: yyyy/mm/<hex>.<ext>. */
     private const NAME = '~^\d{4}/\d{2}/[a-f0-9]{32}\.(jpg|png|gif|webp|mp4|webm|mov|weba|ogg|m4a|mp3|aac|pdf|zip|7z|gz|rar|txt|csv|docx?|xlsx?|pptx?|odt|ods|odp)$~D';
 
+    /** The private disk everything sent in a conversation is kept on (see UploadsDisk). */
+    public const DISK = 'ernestdefoe-parley';
+
     public function __construct(
-        protected Paths $paths,
+        protected Factory $filesystems,
         protected SettingsRepositoryInterface $settings,
         protected TranslatorInterface $translator,
         protected ImageManager $manager
@@ -146,21 +152,18 @@ class Images
             }
         }
 
-        $tmp = tempnam(sys_get_temp_dir(), 'parley');
-        $upload->moveTo($tmp);
-        $mime = (new \finfo(FILEINFO_MIME_TYPE))->file($tmp) ?: '';
+        // Read into memory: the caps above keep it to tens of megabytes, and
+        // the bytes go straight to the disk, whatever driver it uses.
+        $bytes = (string) $upload->getStream();
+        $mime = (new \finfo(FILEINFO_MIME_TYPE))->buffer($bytes) ?: '';
 
         [$type, $ext] = $this->classify($kind, $mime);
 
         $meta = ['file' => '', 'mime' => self::SERVE_AS[$ext] ?? $mime, 'size' => 0];
 
         if ($type === 'image') {
-            $size = @getimagesize($tmp);
-            if (! $size) {
-                @unlink($tmp);
-                $this->fail('not_an_image');
-            }
-            $size = $this->stripMetadata($tmp, $ext) ?? $size;
+            $size = @getimagesizefromstring($bytes) ?: $this->fail('not_an_image');
+            [$bytes, $size] = $this->stripMetadata($bytes, $ext) ?? [$bytes, $size];
             $meta += ['w' => (int) $size[0], 'h' => (int) $size[1]];
         }
 
@@ -173,17 +176,10 @@ class Images
         }
 
         $relative = date('Y/m').'/'.bin2hex(random_bytes(16)).'.'.$ext;
-        $target = $this->root().'/'.$relative;
-
-        if (! is_dir(dirname($target))) {
-            mkdir(dirname($target), 0775, true);
-        }
-
-        rename($tmp, $target);
-        @chmod($target, 0664);
+        $this->disk()->put($relative, $bytes);
 
         $meta['file'] = $relative;
-        $meta['size'] = (int) filesize($target);
+        $meta['size'] = strlen($bytes);
         $meta['type'] = $type;
 
         return $meta;
@@ -196,28 +192,27 @@ class Images
      * left as it is: re-encoding would stop it moving, and GIFs carry no
      * camera data.
      *
-     * @return array{0: int, 1: int}|null the new size, or null when left alone
+     * @return array{0: string, 1: array{0: int, 1: int}}|null the new bytes and size, or null when left alone
      */
-    private function stripMetadata(string $file, string $ext): ?array
+    private function stripMetadata(string $bytes, string $ext): ?array
     {
         if ($ext === 'gif') {
             return null;
         }
 
         try {
-            $image = $this->manager->read($file);
+            $image = $this->manager->read($bytes);
             $encoded = match ($ext) {
                 'png' => $image->toPng(),
                 'webp' => $image->toWebp(90),
                 default => $image->toJpeg(90),
             };
-            file_put_contents($file, (string) $encoded);
-        } catch (\Throwable) {
-            @unlink($file);
+        } catch (\Intervention\Image\Exceptions\RuntimeException) {
+            // Sniffed as a picture but not decodable: refused like any non-picture.
             $this->fail('not_an_image');
         }
 
-        return [$image->width(), $image->height()];
+        return [(string) $encoded, [$image->width(), $image->height()]];
     }
 
     /**
@@ -264,27 +259,27 @@ class Images
     public function maxMb(string $kind): int
     {
         return match ($kind) {
-            'image' => max(1, (int) ($this->settings->get('ernestdefoe-parley.max_image_mb') ?: 8)),
+            'image' => max(1, (int) $this->settings->get('ernestdefoe-parley.max_image_mb')),
             'voice' => self::VOICE_MAX_MB,
-            default => max(1, (int) ($this->settings->get('ernestdefoe-parley.max_file_mb') ?: 25)),
+            default => max(1, (int) $this->settings->get('ernestdefoe-parley.max_file_mb')),
         };
     }
 
     public function maxVoiceSeconds(): int
     {
-        return max(10, (int) ($this->settings->get('ernestdefoe-parley.max_voice_seconds') ?: 300));
+        return max(10, (int) $this->settings->get('ernestdefoe-parley.max_voice_seconds'));
     }
 
-    public function path(string $relative): ?string
+    /** A stored name, if it is one of ours and still on the disk. */
+    public function stored(string $relative): ?string
     {
         // A stored name is always yyyy/mm/<hex>.<ext>; anything else is not ours.
-        if (! preg_match(self::NAME, $relative)) {
-            return null;
-        }
+        return preg_match(self::NAME, $relative) && $this->disk()->exists($relative) ? $relative : null;
+    }
 
-        $path = $this->root().'/'.$relative;
-
-        return is_file($path) ? $path : null;
+    public function disk(): Filesystem
+    {
+        return $this->filesystems->disk(self::DISK);
     }
 
     /** The type a stored file is served as, from its extension: never from what was sent. */
@@ -297,28 +292,26 @@ class Images
      * Purging the extension deletes every file sent in a conversation.
      * Called by the messages table's down(), so disabling alone keeps them.
      *
-     * Only names of the shape store() writes are deleted, then the folders
+     * A purge runs with the extension disabled, when Parley's disk is no
+     * longer declared, so storage/ is opened here and UploadsDisk says where
+     * under it Parley's files are.
+     * Only names of the shape keep() writes are deleted, then the folders
      * they leave empty; anything else under storage/parley stays.
      */
     public static function purge(Container $container): void
     {
-        $root = $container->make(Paths::class)->storage.'/parley';
+        $paths = $container->make(Paths::class);
+        $disk = $container->make(Factory::class)->build(['driver' => 'local', 'root' => $paths->storage]);
+        $root = substr((new UploadsDisk())($paths)['root'], strlen($paths->storage) + 1);
 
-        foreach (glob("$root/[0-9][0-9][0-9][0-9]/[0-9][0-9]/*") ?: [] as $file) {
-            if (preg_match(self::NAME, substr($file, strlen($root) + 1))) {
-                @unlink($file);
+        $disk->delete(array_filter($disk->allFiles($root), fn (string $f) => (bool) preg_match(self::NAME, substr($f, strlen($root) + 1))));
+
+        // Deepest first, so a month empties before its year and the year before the root.
+        foreach ([...array_reverse($disk->allDirectories($root)), $root] as $dir) {
+            if ($disk->allFiles($dir) === []) {
+                $disk->deleteDirectory($dir);
             }
         }
-
-        // rmdir refuses a folder that still holds something.
-        foreach ([...glob("$root/[0-9][0-9][0-9][0-9]/[0-9][0-9]") ?: [], ...glob("$root/[0-9][0-9][0-9][0-9]") ?: [], $root] as $dir) {
-            @rmdir($dir);
-        }
-    }
-
-    private function root(): string
-    {
-        return $this->paths->storage.'/parley';
     }
 
     /** @return never */

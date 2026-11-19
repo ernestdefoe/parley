@@ -3,6 +3,7 @@
 namespace Ernestdefoe\Parley\Api;
 
 use Ernestdefoe\Parley\Conversations;
+use Ernestdefoe\Parley\Gate;
 use Ernestdefoe\Parley\Groups;
 use Ernestdefoe\Parley\Pins;
 use Ernestdefoe\Parley\Rooms;
@@ -21,6 +22,7 @@ class DetailsController extends Controller
     public const PAGE = 30;
 
     public function __construct(
+        protected Gate $gate,
         protected Conversations $conversations,
         protected Groups $groups,
         protected Pins $pins,

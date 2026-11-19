@@ -7,6 +7,7 @@ use Ernestdefoe\Parley\People;
 use Ernestdefoe\Parley\PresenceStore;
 use Ernestdefoe\Parley\Relations;
 use Flarum\User\User;
+use Illuminate\Database\ConnectionInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
 /**
@@ -19,13 +20,9 @@ class PeopleController extends Controller
         protected People $people,
         protected Relations $relations,
         protected Gate $gate,
-        protected PresenceStore $presence
+        protected PresenceStore $presence,
+        protected ConnectionInterface $db
     ) {
-    }
-
-    private function db(): \Illuminate\Database\ConnectionInterface
-    {
-        return resolve(\Illuminate\Database\ConnectionInterface::class);
     }
 
     protected function respond(ServerRequestInterface $request, User $actor): mixed
@@ -38,12 +35,13 @@ class PeopleController extends Controller
         }
 
         $blocked = $this->relations->blockedEitherWay($actor->id);
-        $like = '%'.addcslashes($q, '%_\\').'%';
+        $like = addcslashes($q, '%_\\').'%';
 
         $users = User::query()->whereVisibleTo($actor)
             // Display names are worked out by a driver, not stored, so the
-            // username is what can be searched.
-            ->where('users.username', $this->db()->getDriverName() === 'pgsql' ? 'ilike' : 'like', $like)
+            // username is what can be searched: from its start, like core's
+            // own user search, so the username index is used.
+            ->where('users.username', $this->db->getDriverName() === 'pgsql' ? 'ilike' : 'like', $like)
             ->where('users.id', '!=', $actor->id)
             ->with('groups')
             ->orderBy('users.username')

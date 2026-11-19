@@ -2,6 +2,7 @@
 
 namespace Ernestdefoe\Parley\Api;
 
+use Ernestdefoe\Parley\Gate;
 use Ernestdefoe\Parley\Relations;
 use Flarum\Http\Exception\RouteNotFoundException;
 use Flarum\User\User;
@@ -13,6 +14,7 @@ use Psr\Http\Message\ServerRequestInterface;
 class PersonActionController extends Controller
 {
     public function __construct(
+        protected Gate $gate,
         protected Relations $relations
     ) {
     }

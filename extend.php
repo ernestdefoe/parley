@@ -1,19 +1,18 @@
 <?php
 
 use Ernestdefoe\Parley\Api;
-use Ernestdefoe\Parley\Broadcaster;
 use Ernestdefoe\Parley\Console\ImportGroupMessagesCommand;
 use Ernestdefoe\Parley\Console\ImportRamonCommand;
-use Ernestdefoe\Parley\Conversations;
-use Ernestdefoe\Parley\Gate;
-use Ernestdefoe\Parley\ParleyServiceProvider;
+use Ernestdefoe\Parley\Console\PrunePresenceCommand;
 use Ernestdefoe\Parley\Notification\NewMessageBlueprint;
 use Ernestdefoe\Parley\Notification\ReportBlueprint;
 use Ernestdefoe\Parley\Notification\RoomMentionBlueprint;
-use Flarum\Api\Context;
+use Ernestdefoe\Parley\ParleyServiceProvider;
+use Ernestdefoe\Parley\Tags\TagsServiceProvider;
+use Ernestdefoe\Parley\UploadsDisk;
 use Flarum\Api\Resource\ForumResource;
-use Flarum\Api\Schema;
 use Flarum\Extend;
+use Illuminate\Console\Scheduling\Event;
 
 return [
     (new Extend\Frontend('forum'))
@@ -93,32 +92,22 @@ return [
 
     (new Extend\Console())
         ->command(ImportRamonCommand::class)
-        ->command(ImportGroupMessagesCommand::class),
+        ->command(ImportGroupMessagesCommand::class)
+        ->command(PrunePresenceCommand::class)
+        ->schedule(PrunePresenceCommand::class, function (Event $event): void {
+            $event->everyTenMinutes();
+        }),
 
-    /*
-     * Everything the client needs before its first heartbeat, in the boot
-     * payload, so the rail draws on first paint instead of after a round trip.
-     */
     (new Extend\ApiResource(ForumResource::class))
-        ->fields(fn () => [
-            Schema\Arr::make('parley')
-                ->get(function ($forum, Context $context) {
-                    $actor = $context->getActor();
-                    $gate = resolve(Gate::class);
-                    $settings = resolve(\Flarum\Settings\SettingsRepositoryInterface::class);
+        ->fields(Api\ForumResourceFields::class),
 
-                    return [
-                        'canUse' => $gate->canUse($actor),
-                        'canModerate' => ! $actor->isGuest() && $actor->hasPermission(Gate::MODERATE),
-                        'realtime' => resolve(Broadcaster::class)->available(),
-                        'awayMinutes' => (int) $settings->get('ernestdefoe-parley.away_minutes') ?: 10,
-                        'maxImageMb' => (int) $settings->get('ernestdefoe-parley.max_image_mb') ?: 8,
-                        'maxFileMb' => (int) $settings->get('ernestdefoe-parley.max_file_mb') ?: 25,
-                        'maxVoiceSeconds' => (int) $settings->get('ernestdefoe-parley.max_voice_seconds') ?: 300,
-                        'groupMaxMembers' => (int) $settings->get('ernestdefoe-parley.group_max_members') ?: 50,
-                        'reactions' => Conversations::REACTIONS,
-                        'labels' => Conversations::LABELS,
-                    ];
-                }),
+    // What is sent in a conversation: private, outside the web root.
+    (new Extend\Filesystem())
+        ->disk('ernestdefoe-parley', UploadsDisk::class),
+
+    // Rooms tied to tags, and the tag beside someone in the online list.
+    (new Extend\Conditional())
+        ->whenExtensionEnabled('flarum-tags', fn () => [
+            (new Extend\ServiceProvider())->register(TagsServiceProvider::class),
         ]),
 ];

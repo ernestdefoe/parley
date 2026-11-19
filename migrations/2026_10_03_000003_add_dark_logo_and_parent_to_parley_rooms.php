@@ -10,8 +10,8 @@ use Illuminate\Database\Schema\Builder;
 return [
     'up' => function (Builder $schema) {
         $schema->table('parley_conversations', function (Blueprint $table) {
-            $table->string('image_dark_path', 150)->nullable()->after('image_path');
-            $table->unsignedInteger('parent_id')->nullable()->after('tag_id');
+            $table->string('image_dark_path', 150)->nullable();
+            $table->unsignedInteger('parent_id')->nullable();
             $table->index('parent_id');
         });
     },

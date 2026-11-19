@@ -2,8 +2,11 @@
 
 namespace Ernestdefoe\Parley;
 
+use Ernestdefoe\Parley\Job\PrunePresence;
 use Flarum\Discussion\Discussion;
 use Flarum\User\User;
+use Illuminate\Contracts\Cache\Repository as Cache;
+use Illuminate\Contracts\Queue\Queue;
 use Illuminate\Database\ConnectionInterface;
 
 /**
@@ -27,15 +30,26 @@ class PresenceStore
 
     public const PLACES = ['index', 'discussion', 'reply', 'tag', 'user', 'messages', 'room', 'voice', 'other'];
 
+    /** Seconds between prunes; a row older than this is long past WINDOW. */
+    public const PRUNE_EVERY = 600;
+
     public function __construct(
-        protected ConnectionInterface $db
+        protected ConnectionInterface $db,
+        protected Cache $cache,
+        protected Queue $queue
     ) {
+    }
+
+    /** @return int how many rows went */
+    public function prune(): int
+    {
+        return $this->db->table('parley_presence')
+            ->where('last_seen_at', '<', date('Y-m-d H:i:s', time() - self::PRUNE_EVERY))
+            ->delete();
     }
 
     /**
      * @param  array{status?: string, place?: string, discussionId?: int|null, near?: int|null, tagId?: int|null}  $where
-     */
-    /**
      * @return string what changed for everyone else's list: 'list' when
      *                somebody arrived or changed status, 'moved' when a member
      *                went somewhere new (the activity line), '' for nothing.
@@ -100,12 +114,10 @@ class PresenceStore
             ]
         );
 
-        // Pruned on write, now and then. Rows past the window are already
-        // ignored by every read, so this is housekeeping, not correctness.
-        if (random_int(1, 40) === 1) {
-            $this->db->table('parley_presence')
-                ->where('last_seen_at', '<', date('Y-m-d H:i:s', time() - 600))
-                ->delete();
+        // Housekeeping, queued at most once per PRUNE_EVERY: cache add() is
+        // atomic, so one heartbeat in that time wins and the rest skip it.
+        if ($this->cache->add('parley.presence.prune', 1, self::PRUNE_EVERY)) {
+            $this->queue->push(new PrunePresence());
         }
 
         if (! $member) {

@@ -203,11 +203,12 @@ class ParleyTest extends TestCase
         $this->assertSame(200, $status);
         $this->assertSame([], $body['people'], 'Too short a search');
 
-        [, $body] = $this->call('GET', '/api/parley/people', 2, [], ['q' => 'er']);
-        $names = array_column($body['people'], 'username');
-        $this->assertContains('other', $names);
-        $this->assertNotContains('blocker', $names);
-        $this->assertNotContains('normal', $names);
+        $names = fn (string $q) => array_column($this->call('GET', '/api/parley/people', 2, [], ['q' => $q])[1]['people'], 'username');
+        $this->assertContains('other', $names('oth'));
+        $this->assertNotContains('blocker', $names('bloc'));
+        $this->assertNotContains('normal', $names('norm'));
+        // From the start of the name, like core's user search, so the index is used.
+        $this->assertNotContains('other', $names('ther'));
     }
 
     #[Test]

@@ -44,7 +44,7 @@ class Groups
 
     public function maxMembers(): int
     {
-        return max(3, min(250, (int) ($this->settings->get('ernestdefoe-parley.group_max_members') ?: 50)));
+        return max(3, min(250, (int) $this->settings->get('ernestdefoe-parley.group_max_members')));
     }
 
     /** @param  int[]  $userIds  everyone but the creator */

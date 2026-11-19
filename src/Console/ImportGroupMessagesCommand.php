@@ -6,8 +6,9 @@ use Carbon\Carbon;
 use Ernestdefoe\Parley\Conversations;
 use Ernestdefoe\Parley\GroupPhotos;
 use Flarum\Console\AbstractCommand;
-use Flarum\Foundation\Paths;
+use Flarum\Foundation\ValidationException;
 use Flarum\Formatter\Formatter;
+use Illuminate\Contracts\Filesystem\Factory;
 use Illuminate\Database\ConnectionInterface;
 use Symfony\Component\Console\Input\InputOption;
 
@@ -29,7 +30,7 @@ class ImportGroupMessagesCommand extends AbstractCommand
         protected ConnectionInterface $db,
         protected Formatter $formatter,
         protected GroupPhotos $photos,
-        protected Paths $paths
+        protected Factory $filesystems
     ) {
         parent::__construct();
     }
@@ -213,14 +214,19 @@ class ImportGroupMessagesCommand extends AbstractCommand
             return null;
         }
 
-        $file = realpath($this->paths->public.'/assets/'.rawurldecode($m[1]));
-        if (! $file || ! str_starts_with($file, (string) realpath($this->paths->public.'/assets')) || ! is_file($file)) {
+        // A path on the assets disk, never one that climbs out of it.
+        $path = rawurldecode($m[1]);
+        $assets = $this->filesystems->disk('flarum-assets');
+        if (str_contains($path, '..') || ! $assets->exists($path)) {
             return null;
         }
 
         try {
-            return $this->photos->storeFile($file);
-        } catch (\Throwable) {
+            return $this->photos->storeBytes((string) $assets->get($path));
+        } catch (ValidationException) {
+            // Not a picture Parley keeps: the group comes across without one.
+            $this->info("Skipped the group icon $path: not a JPEG, PNG, GIF or WebP under ".GroupPhotos::MAX_MB.' MB.');
+
             return null;
         }
     }

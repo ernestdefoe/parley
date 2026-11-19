@@ -3,12 +3,14 @@
 namespace Ernestdefoe\Parley\Api;
 
 use Ernestdefoe\Parley\Conversations;
+use Ernestdefoe\Parley\Gate;
 use Flarum\User\User;
 use Psr\Http\Message\ServerRequestInterface;
 
 class ReactController extends Controller
 {
     public function __construct(
+        protected Gate $gate,
         protected Conversations $conversations
     ) {
     }
