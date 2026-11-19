@@ -52,7 +52,8 @@ class Pins
                 throw new ValidationException(['message' => $this->translator->trans('ernestdefoe-parley.api.too_many_pins', ['max' => self::MAX])]);
             }
 
-            $this->db->table('parley_pins')->insert([
+            // Of two taps at once only one inserts, and only that one says so.
+            $pinned = $this->db->table('parley_pins')->insertOrIgnore([
                 'message_id' => $messageId,
                 'conversation_id' => $conversation->id,
                 'user_id' => $actor->id,
@@ -60,10 +61,12 @@ class Pins
             ]);
 
             // "Ana pinned a message" — so everyone knows why the bar changed.
-            $this->conversations->send($conversation, $actor, 'system', null, [
-                'action' => 'pinned',
-                'messageId' => $messageId,
-            ]);
+            if ($pinned) {
+                $this->conversations->send($conversation, $actor, 'system', null, [
+                    'action' => 'pinned',
+                    'messageId' => $messageId,
+                ]);
+            }
         }
 
         $payload = $this->conversations->payloads([$this->conversations->message($messageId)])[0];

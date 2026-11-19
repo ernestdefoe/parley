@@ -13,9 +13,9 @@ use Laminas\Diactoros\Stream;
 use Psr\Http\Message\ServerRequestInterface;
 
 /**
- * Serves what was sent in a conversation — /files/{message id}, and the older
- * /images/{message id} — to people who may read that conversation, and to
- * nobody else: a stranger gets the same 404 as a message that does not exist.
+ * Serves what was sent in a conversation — /files/{message id} — to people
+ * who may read that conversation, and to nobody else: a stranger gets the
+ * same 404 as a message that does not exist.
  *
  * 🚨 Served as the type its stored extension says, which was decided from the
  * bytes when it was kept, never from what the sender claimed. Files are a

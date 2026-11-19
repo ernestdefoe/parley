@@ -17,6 +17,7 @@ class GroupPhotos
 {
     public const SIZE = 256;
 
+    /** The largest upload, in MB, for a group photo and a room logo alike. */
     public const MAX_MB = 5;
 
     /** The shape of every name set() writes. */
@@ -45,8 +46,7 @@ class GroupPhotos
     /** Keep a picture's bytes as a group photo. */
     public function storeBytes(string $bytes): string
     {
-        $mime = (new \finfo(FILEINFO_MIME_TYPE))->buffer($bytes) ?: '';
-        if (! isset(Images::TYPES[$mime]) || strlen($bytes) > self::MAX_MB * 1024 * 1024 || ! @getimagesizefromstring($bytes)) {
+        if (strlen($bytes) > self::MAX_MB * 1024 * 1024 || ImageBytes::picture($bytes) === null) {
             $this->fail();
         }
 

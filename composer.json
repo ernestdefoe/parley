@@ -19,6 +19,8 @@
     ],
     "require": {
         "php": "^8.3",
+        "ext-fileinfo": "*",
+        "ext-gd": "*",
         "flarum/core": "^2.0",
         "guzzlehttp/guzzle": "^7.0",
         "intervention/image": "^3.2"

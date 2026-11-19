@@ -2,9 +2,9 @@
 
 namespace Ernestdefoe\Parley;
 
-use Illuminate\Contracts\Container\Container;
-use Psr\Log\LoggerInterface;
-use Throwable;
+use Ernestdefoe\Parley\Job\PushRealtime;
+use Ernestdefoe\Parley\Realtime\Channel;
+use Illuminate\Contracts\Queue\Queue;
 
 /**
  * Pushes Parley events onto each recipient's private user channel.
@@ -13,21 +13,24 @@ use Throwable;
  * cannot open a channel per conversation. Every event therefore goes to
  * `private-user=<id>`, the one channel every signed-in browser already holds.
  *
- * With no realtime installed this does nothing, and the client polls.
+ * Where the pushes go is the Realtime\Channel binding: nowhere (NoChannel,
+ * and the client polls) unless flarum/realtime is enabled. They are sent from
+ * the queue (Job\PushRealtime), never inside the request.
+ *
+ * Parley Calls type-hints this class and its tests extend it: keep the class
+ * name and the three public methods.
  */
 class Broadcaster
 {
     public function __construct(
-        protected Container $container,
-        protected LoggerInterface $log
+        protected Channel $channel,
+        protected Queue $queue
     ) {
     }
 
     public function available(): bool
     {
-        // flarum/realtime binds the client; bound() loads no class, so this is
-        // safe on a forum without it.
-        return $this->container->bound(\Pusher\Pusher::class);
+        return $this->channel->available();
     }
 
     /**
@@ -38,14 +41,8 @@ class Broadcaster
      */
     public function toEveryone(string $event): void
     {
-        if (! $this->available()) {
-            return;
-        }
-
-        try {
-            $this->container->make(\Pusher\Pusher::class)->trigger('public', 'parley.'.$event, ['at' => time()]);
-        } catch (Throwable $e) {
-            $this->log->warning('[parley] realtime push failed: '.$e->getMessage());
+        if ($this->available()) {
+            $this->queue->push(new PushRealtime(['public'], 'parley.'.$event, ['at' => time()]));
         }
     }
 
@@ -61,21 +58,12 @@ class Broadcaster
             return;
         }
 
-        // The message is already saved. A daemon that is down must not turn a
-        // send into an error; the client reconciles on its next fetch.
-        try {
-            /** @var \Pusher\Pusher $pusher */
-            $pusher = $this->container->make(\Pusher\Pusher::class);
+        // Pusher takes at most 100 channels per trigger.
+        $batches = array_map(
+            fn (array $chunk) => array_map(fn (int $id) => 'private-user='.$id, $chunk),
+            array_chunk($userIds, 100)
+        );
 
-            foreach (array_chunk($userIds, 100) as $chunk) {
-                $pusher->trigger(
-                    array_map(fn (int $id) => 'private-user='.$id, $chunk),
-                    'parley.'.$event,
-                    $payload
-                );
-            }
-        } catch (Throwable $e) {
-            $this->log->warning('[parley] realtime push failed: '.$e->getMessage());
-        }
+        $this->queue->push(new PushRealtime($batches, 'parley.'.$event, $payload));
     }
 }

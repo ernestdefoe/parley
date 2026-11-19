@@ -4,6 +4,7 @@ namespace Ernestdefoe\Parley\Api;
 
 use Ernestdefoe\Parley\Conversations;
 use Ernestdefoe\Parley\Gate;
+use Ernestdefoe\Parley\Inbox;
 use Flarum\User\User;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -19,7 +20,8 @@ class ShowConversationController extends Controller
 {
     public function __construct(
         protected Gate $gate,
-        protected Conversations $conversations
+        protected Conversations $conversations,
+        protected Inbox $inbox
     ) {
     }
 
@@ -33,7 +35,7 @@ class ShowConversationController extends Controller
         $around = (int) $this->query($request, 'around') ?: null;
 
         return [
-            'conversation' => $this->conversations->summary($conversation, $actor),
+            'conversation' => $this->inbox->summary($conversation, $actor),
             'messages' => $this->conversations->messages((int) $conversation->id, $before, $after, $around),
         ];
     }

@@ -113,6 +113,4 @@ export default {
   reports: () => call<ReportsResponse>('GET', '/reports'),
   resolve: (id: Id) => call<ReportsResponse>('POST', `/reports/${id}/resolve`),
   fileUrl: (messageId: Id) => url(`/files/${messageId}`),
-  /** Kept for anything that still asks for a picture by its old address. */
-  imageUrl: (messageId: Id) => url(`/files/${messageId}`),
 };

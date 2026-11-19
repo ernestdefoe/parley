@@ -21,6 +21,16 @@ interface TagVisibility
      */
     public function named(User $viewer, array $ids): array;
 
+    /**
+     * Which of $users may see tag $tagId: the same answer as visibleIds() per
+     * user, in a fixed number of queries however many users there are. Their
+     * groups must already be loaded.
+     *
+     * @param  list<User>  $users
+     * @return list<int> the ids of those who may, in the order given
+     */
+    public function whoCanSee(int $tagId, array $users): array;
+
     /** @return array<int, array{icon: ?string, color: ?string}> every tag's icon and colour */
     public function looks(): array;
 }

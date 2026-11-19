@@ -3,6 +3,7 @@
 namespace Ernestdefoe\Parley\Tests\integration\console;
 
 use Carbon\Carbon;
+use Ernestdefoe\Parley\Console\ImportGroupMessagesCommand;
 use Flarum\Testing\integration\ConsoleTestCase;
 use Flarum\User\User;
 use Illuminate\Database\Schema\Blueprint;
@@ -144,5 +145,77 @@ class ImportGroupMessagesTest extends ConsoleTestCase
         $this->runCommand(['command' => 'parley:import-group-messages']);
         $this->assertSame(4, $db->table('parley_messages')->count(), 'Only the new message');
         $this->assertSame(4, $db->table('dialog_messages')->count(), 'Group Messages keeps its own');
+    }
+
+    #[Test]
+    public function groups_are_read_a_chunk_at_a_time()
+    {
+        $this->app();
+        $this->sourceTables();
+        $db = $this->database();
+        $now = Carbon::now();
+
+        // Group 7 from the fixtures, then CHUNK more: two chunks. Groups 7,
+        // 100 and 101 have messages.
+        $ids = range(100, 100 + ImportGroupMessagesCommand::CHUNK - 1);
+        $db->table('dialogs')->insert(array_map(fn ($id) => ['id' => $id, 'type' => 'group', 'created_at' => $now], $ids));
+        $db->table('group_dialogs')->insert(array_map(fn ($id) => ['dialog_id' => $id, 'title' => "Group $id", 'owner_id' => 3], $ids));
+        $members = [];
+        foreach ($ids as $id) {
+            $members[] = ['dialog_id' => $id, 'user_id' => 2, 'joined_at' => $now, 'last_read_message_id' => 0];
+            $members[] = ['dialog_id' => $id, 'user_id' => 3, 'joined_at' => $now, 'last_read_message_id' => 0];
+        }
+        $db->table('dialog_user')->insert($members);
+        $db->table('dialog_messages')->insert([
+            ['id' => 1000, 'dialog_id' => 100, 'user_id' => 2, 'content' => '<t>Hi 100</t>', 'created_at' => $now],
+            ['id' => 1010, 'dialog_id' => 101, 'user_id' => 3, 'content' => '<t>Hi 101</t>', 'created_at' => $now],
+        ]);
+
+        $log = $this->logged(fn () => $this->runCommand(['command' => 'parley:import-group-messages']));
+
+        $this->assertSame(ImportGroupMessagesCommand::CHUNK + 1, $db->table('parley_conversations')->where('import_key', 'like', 'gm:%')->count());
+        $this->assertSame(2 * ImportGroupMessagesCommand::CHUNK + 3, $db->table('parley_participants')->count());
+        $this->assertSame('owner', $db->table('parley_participants')->join('parley_conversations as c', 'c.id', '=', 'parley_participants.conversation_id')
+            ->where('c.import_key', 'gm:150')->where('parley_participants.user_id', 3)->value('role'));
+        $this->assertTrue((bool) $db->table('parley_messages')->where('import_key', 'gmm:70')->value('has_link'));
+        $this->assertFalse((bool) $db->table('parley_messages')->where('import_key', 'gmm:71')->value('has_link'));
+
+        $this->assertSame(2, $this->touching($log, 'dialog_user', 'select'), 'Members are read per chunk, not per group');
+        $this->assertSame(ImportGroupMessagesCommand::CHUNK + 1, $this->touching($log, 'parley_participants', 'insert'), 'One insert per group, not per member');
+        // Looked for once in all (it was once per group), read once for each
+        // of the three groups with new messages.
+        $this->assertSame(1 + 3, $this->touching($log, 'dialog_message_reactions', ''), 'The reactions table is looked for once');
+
+        // Second run: someone joins the last group, one new message in group 7.
+        $last = end($ids);
+        $db->table('dialog_user')->insert(['dialog_id' => $last, 'user_id' => 4, 'joined_at' => $now, 'last_read_message_id' => 0]);
+        $db->table('dialog_messages')->insert(['id' => 73, 'dialog_id' => 7, 'user_id' => 4, 'content' => '<t>One more</t>', 'created_at' => $now]);
+
+        $log = $this->logged(fn () => $this->runCommand(['command' => 'parley:import-group-messages']));
+
+        $this->assertSame(6, $db->table('parley_messages')->count(), 'Only the new message');
+        $this->assertSame(2 * ImportGroupMessagesCommand::CHUNK + 4, $db->table('parley_participants')->count(), 'Only the new member');
+        $this->assertSame(2, $this->touching($log, 'parley_participants', 'select'), 'Who is already in is read per chunk');
+        $this->assertSame(2, $this->touching($log, 'parley_conversations', 'select'), 'Conversations already made are read per chunk');
+    }
+
+    /** @return list<array{query: string}> */
+    private function logged(callable $run): array
+    {
+        $db = $this->database();
+        $db->flushQueryLog();
+        $db->enableQueryLog();
+        $run();
+        $log = $db->getQueryLog();
+        $db->disableQueryLog();
+
+        return $log;
+    }
+
+    /** How many logged queries start with $verb and name $table (in the SQL or a binding). */
+    private function touching(array $log, string $table, string $verb): int
+    {
+        return count(array_filter($log, fn ($q) => ($verb === '' || stripos($q['query'], $verb) === 0)
+            && (str_contains($q['query'], $table) || in_array($table, array_map('strval', $q['bindings'] ?? []), true))));
     }
 }

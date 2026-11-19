@@ -90,9 +90,52 @@ class Gate
             return null;
         }
 
-        return match ($target->getPreference('parleyWhoCanMessage', 'everyone')) {
+        return $this->byPreference($target, fn () => $this->relations->follows($target->id, $actor->id));
+    }
+
+    /**
+     * refusal() for many targets at once, in a fixed number of queries: the
+     * targets' groups must be loaded.
+     *
+     * @param  iterable<User>  $targets
+     * @return array<int, string> target id => reason, for the refused only
+     */
+    public function refusals(User $actor, iterable $targets): array
+    {
+        $targets = collect($targets);
+        $ids = $targets->map(fn (User $u) => (int) $u->id)->all();
+        $refused = [];
+
+        $actorReason = ! $this->canUse($actor) ? 'no_permission' : (! $actor->is_email_confirmed ? 'unconfirmed' : null);
+        $staff = $actorReason === null && $actor->hasPermission(self::MODERATE);
+        $blocked = $actorReason === null ? $this->relations->blockedEitherWay($actor->id) : [];
+        $followers = $actorReason === null && ! $staff ? $this->relations->followersAmong($actor->id, $ids) : [];
+
+        foreach ($targets as $target) {
+            $id = (int) $target->id;
+            $reason = match (true) {
+                $id === $actor->id => 'self',
+                $actorReason !== null => $actorReason,
+                $target->isGuest() || ! $this->canUseInBulk($target) => 'unavailable',
+                isset($blocked[$id]) => 'blocked',
+                $staff => null,
+                default => $this->byPreference($target, fn () => isset($followers[$id])),
+            };
+
+            if ($reason !== null) {
+                $refused[$id] = $reason;
+            }
+        }
+
+        return $refused;
+    }
+
+    /** @param  callable(): bool  $followsActor */
+    private function byPreference(User $target, callable $followsActor): ?string
+    {
+        return match ($target->getPreference('parleyWhoCanMessage')) {
             'nobody' => 'closed',
-            'following' => $this->relations->follows($target->id, $actor->id) ? null : 'following_only',
+            'following' => $followsActor() ? null : 'following_only',
             default => null,
         };
     }
@@ -112,8 +155,31 @@ class Gate
             return false;
         }
 
-        return $target->getPreference('parleyWhoCanMessage', 'everyone') === 'everyone'
+        return $target->getPreference('parleyWhoCanMessage') === 'everyone'
             && ! $this->relations->follows($target->id, $actor->id);
+    }
+
+    /**
+     * landsInRequests() for many targets at once, in one query.
+     *
+     * @param  list<User>  $targets
+     * @return array<int, true> the ones whose copy waits in their Requests
+     */
+    public function requestsAmong(User $actor, array $targets): array
+    {
+        if ($targets === [] || $actor->hasPermission(self::MODERATE)) {
+            return [];
+        }
+
+        $followers = $this->relations->followersAmong($actor->id, array_map(fn (User $u) => (int) $u->id, $targets));
+        $out = [];
+        foreach ($targets as $target) {
+            if ($target->getPreference('parleyWhoCanMessage') === 'everyone' && ! isset($followers[(int) $target->id])) {
+                $out[(int) $target->id] = true;
+            }
+        }
+
+        return $out;
     }
 
     public function isSuspended(User $user): bool

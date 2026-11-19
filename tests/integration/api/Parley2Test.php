@@ -59,7 +59,7 @@ class Parley2Test extends TestCase
                 ['conversation_id' => 21, 'user_id' => 4, 'joined_at' => $now],
             ],
             'parley_messages' => [
-                $message(1, 1, 2, 'Hello there'), $message(2, 1, 3, 'Hi back, see https://example.com'),
+                $message(1, 1, 2, 'Hello there'), $message(2, 1, 3, 'Hi back, see https://example.com', ['has_link' => true]),
                 $message(3, 2, 4, 'Secret plans for the banana'),
                 $message(4, 20, 2, 'Banana bread in the lobby'),
                 $message(5, 21, 4, 'Staff banana budget'),

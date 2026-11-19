@@ -19,6 +19,12 @@ class OnlineList
     /** Past this many, the list says "and N more" instead of drawing them. */
     public const CAP = 150;
 
+    /**
+     * Rows read per heartbeat: CAP and room for the people a viewer skips
+     * (blocked, hidden, appearing offline) without falling short of CAP.
+     */
+    private const READ = 2 * self::CAP;
+
     public function __construct(
         protected PresenceStore $presence,
         protected Relations $relations,
@@ -33,8 +39,8 @@ class OnlineList
     /** @return array<string, mixed> */
     public function for(User $viewer): array
     {
-        $rows = $this->presence->onlineMembers();
         $follows = $this->relations->followedBy($viewer->id);
+        $rows = $this->presence->onlineMembers(self::READ, array_keys($follows));
         $blocked = $this->relations->blockedEitherWay($viewer->id);
         $canSeeHidden = $viewer->hasPermission(Gate::MODERATE);
         $canSeeLastSeen = $viewer->hasPermission('user.viewLastSeenAt');
@@ -47,7 +53,9 @@ class OnlineList
         $ids = array_unique(array_merge(array_keys($rowsByUser), array_keys($follows)));
         $users = $ids === []
             ? collect()
-            : User::query()->whereIn('id', $ids)->with('groups')->get()->keyBy('id');
+            // Visible to the viewer: an extension that hides someone (a shadow
+            // ban, a private profile) hides them from the rail too.
+            : User::query()->whereVisibleTo($viewer)->whereIn('users.id', $ids)->with('groups')->get()->keyBy('id');
 
         $discussions = $this->discussions($viewer, $rowsByUser);
         $tags = $this->tags($viewer, $rowsByUser);
@@ -64,7 +72,7 @@ class OnlineList
             }
 
             $row = $rowsByUser[$id] ?? null;
-            $discloses = (bool) $user->getPreference('discloseOnline', true) || $canSeeLastSeen;
+            $discloses = (bool) $user->getPreference('discloseOnline') || $canSeeLastSeen;
             $hidden = $row && ($row->status === 'invisible'
                 || ! $discloses
                 || (! $canSeeHidden && $this->gate->hiddenFromListInBulk($user)));
@@ -93,6 +101,13 @@ class OnlineList
                         : null,
                 ];
             }
+        }
+
+        // Past the rows read, everyone online and not appearing offline counts
+        // in "and N more" unread: a number, never a name.
+        if (count($rows) >= self::READ) {
+            $read = count(array_filter($rowsByUser, fn ($row) => $row->status !== 'invisible'));
+            $more += max(0, $this->presence->onlineMemberCount() - $read);
         }
 
         return [

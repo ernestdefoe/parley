@@ -9,7 +9,6 @@ use Ernestdefoe\Parley\Pins;
 use Ernestdefoe\Parley\Rooms;
 use Flarum\User\User;
 use Illuminate\Database\ConnectionInterface;
-use Illuminate\Database\Query\Builder;
 use Psr\Http\Message\ServerRequestInterface;
 
 /**
@@ -57,7 +56,8 @@ class DetailsController extends Controller
 
         match ($tab) {
             'files' => $q->whereIn('type', ['file', 'voice']),
-            'links' => $q->where('type', 'text')->where(fn (Builder $w) => $w->where('body', 'like', '%http://%')->orWhere('body', 'like', '%https://%')),
+            // has_link is set when the message is sent: no scan of the text.
+            'links' => $q->where('type', 'text')->where('has_link', true),
             default => $q->whereIn('type', ['image', 'video']),
         };
 

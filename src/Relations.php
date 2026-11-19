@@ -40,13 +40,31 @@ class Relations
             return;
         }
 
-        if (! $q->exists()) {
-            $this->db->table('parley_follows')->insert([
-                'user_id' => $userId,
-                'followed_id' => $otherId,
-                'created_at' => date('Y-m-d H:i:s'),
-            ]);
+        // Ignored when it is already there: a double tap is not an error.
+        $this->db->table('parley_follows')->insertOrIgnore([
+            'user_id' => $userId,
+            'followed_id' => $otherId,
+            'created_at' => date('Y-m-d H:i:s'),
+        ]);
+    }
+
+    /**
+     * Which of these people follow $userId: one query for a whole list.
+     *
+     * @param  int[]  $ids
+     * @return array<int, true>
+     */
+    public function followersAmong(int $userId, array $ids): array
+    {
+        if ($ids === []) {
+            return [];
         }
+
+        return array_fill_keys(
+            $this->db->table('parley_follows')->where('followed_id', $userId)->whereIn('user_id', $ids)
+                ->pluck('user_id')->map(fn ($id) => (int) $id)->all(),
+            true
+        );
     }
 
     /**
@@ -92,13 +110,11 @@ class Relations
             return;
         }
 
-        if (! $q->exists()) {
-            $this->db->table('parley_blocks')->insert([
-                'user_id' => $userId,
-                'blocked_id' => $otherId,
-                'created_at' => date('Y-m-d H:i:s'),
-            ]);
-        }
+        $this->db->table('parley_blocks')->insertOrIgnore([
+            'user_id' => $userId,
+            'blocked_id' => $otherId,
+            'created_at' => date('Y-m-d H:i:s'),
+        ]);
 
         // Blocking someone also stops following them.
         $this->setFollow($userId, $otherId, false);

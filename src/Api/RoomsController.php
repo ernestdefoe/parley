@@ -2,8 +2,9 @@
 
 namespace Ernestdefoe\Parley\Api;
 
-use Ernestdefoe\Parley\Conversations;
+use Ernestdefoe\Parley\Inbox;
 use Ernestdefoe\Parley\Gate;
+use Ernestdefoe\Parley\GroupPhotos;
 use Ernestdefoe\Parley\RoomImages;
 use Ernestdefoe\Parley\Rooms;
 use Flarum\Foundation\ValidationException;
@@ -12,6 +13,7 @@ use Flarum\Locale\TranslatorInterface;
 use Flarum\User\User;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Psr\Http\Message\ServerRequestInterface;
+use Psr\Http\Message\UploadedFileInterface;
 
 /**
  * Members: list rooms, join, leave.
@@ -22,7 +24,7 @@ class RoomsController extends Controller
     public function __construct(
         protected Gate $gate,
         protected Rooms $rooms,
-        protected Conversations $conversations,
+        protected Inbox $inbox,
         protected RoomImages $images,
         protected TranslatorInterface $translator
     ) {
@@ -53,7 +55,7 @@ class RoomsController extends Controller
         if ($route === 'ernestdefoe-parley.rooms') {
             $parent = (int) $this->query($request, 'parent') ?: null;
 
-            return ['rooms' => $this->rooms->listFor($actor, $this->conversations->unreadCounts($actor->id), $parent)];
+            return ['rooms' => $this->rooms->listFor($actor, $this->inbox->unreadCounts($actor->id), $parent)];
         }
 
         $room = $this->room($request);
@@ -65,7 +67,7 @@ class RoomsController extends Controller
             ? $this->rooms->join($room, $actor)
             : $this->rooms->leave($room, $actor);
 
-        return ['rooms' => $this->rooms->listFor($actor, $this->conversations->unreadCounts($actor->id))];
+        return ['rooms' => $this->rooms->listFor($actor, $this->inbox->unreadCounts($actor->id))];
     }
 
     private function room(ServerRequestInterface $request): object
@@ -91,8 +93,9 @@ class RoomsController extends Controller
         $room = $this->room($request);
         $file = \Illuminate\Support\Arr::get($request->getUploadedFiles(), 'image');
 
-        if (! $file || $file->getError() !== UPLOAD_ERR_OK || $file->getSize() > 5 * 1024 * 1024) {
-            throw new ValidationException(['image' => $this->translator->trans('ernestdefoe-parley.api.room_image_type')]);
+        // The same cap as a group photo: one constant, GroupPhotos::MAX_MB.
+        if (! $file instanceof UploadedFileInterface || $file->getError() !== UPLOAD_ERR_OK || $file->getSize() > GroupPhotos::MAX_MB * 1024 * 1024) {
+            throw new ValidationException(['image' => $this->translator->trans('ernestdefoe-parley.api.room_image_type', ['max' => GroupPhotos::MAX_MB])]);
         }
 
         $this->images->set($room, (string) $file->getStream(), $this->query($request, 'variant') === 'dark' ? 'dark' : 'light');

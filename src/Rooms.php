@@ -7,6 +7,7 @@ use Ernestdefoe\Parley\Tags\TagVisibility;
 use Flarum\Foundation\ValidationException;
 use Flarum\Locale\TranslatorInterface;
 use Flarum\User\User;
+use Illuminate\Contracts\Cache\Repository as Cache;
 use Illuminate\Database\ConnectionInterface;
 use Illuminate\Support\Str;
 
@@ -20,26 +21,24 @@ use Illuminate\Support\Str;
 class Rooms
 {
     /**
-     * Callables that add to room cards, given the whole list at once so they
-     * can answer in one query: fn (array $cards, User|null $viewer): array.
-     * Parley Calls adds who is in each room's voice chat here.
+     * @deprecated Register with RoomRegistry::addCardExtender(). Still read
+     *             (RoomRegistry::cardExtenders()) for Parley Calls, which adds
+     *             who is in each room's voice chat here.
      *
      * @var list<callable>
      */
     public static array $cardExtenders = [];
 
     /**
-     * Rooms another extension owns, by the `owner` it created them with:
-     * fn (object $room, User $actor): bool decides who may see one.
-     *
-     * 🚨 An owned room is voice only. It never appears in a list, it carries
-     * no text chat, and it is invisible to everyone when its owner is not
-     * here to answer, so disabling the owner closes it rather than opening it.
-     * Parley Calls' voice chat reaches it through canView() like any room.
+     * @deprecated Register with RoomRegistry::addOwner(). Still read
+     *             (RoomRegistry::owner()) for extensions written before it.
      *
      * @var array<string, callable>
      */
     public static array $owners = [];
+
+    /** How long a tag-bound room's audience is remembered, in seconds. */
+    private const AUDIENCE_TTL = 60;
 
     /** @var array<int, array<int, true>> viewer id => visible tag ids */
     private array $visibleTags = [];
@@ -53,7 +52,10 @@ class Rooms
         protected PresenceStore $presence,
         protected TranslatorInterface $translator,
         protected RoomImages $images,
-        protected TagVisibility $tags
+        protected TagVisibility $tags,
+        protected RoomRegistry $registry,
+        protected MessageFiles $files,
+        protected Cache $cache
     ) {
     }
 
@@ -73,8 +75,13 @@ class Rooms
             return false;
         }
 
+        // 🚨 A room another extension owns (RoomRegistry::addOwner()) is voice
+        // only. It never appears in a list, it carries no text chat, and it is
+        // invisible to everyone when its owner is not here to answer, so
+        // disabling the owner closes it rather than opening it. Parley Calls'
+        // voice chat reaches it through here like any room.
         if ($this->isOwned($room)) {
-            $owner = self::$owners[$room->owner] ?? null;
+            $owner = $this->registry->owner((string) $room->owner);
 
             return $owner !== null && (bool) $owner($room, $actor);
         }
@@ -168,27 +175,19 @@ class Rooms
 
         $ids = array_map(fn ($r) => (int) $r->id, $rooms);
 
-        $members = [];
-        foreach ($this->db->table('parley_participants')->whereIn('conversation_id', $ids)
-            ->groupBy('conversation_id')->select('conversation_id as cid')->selectRaw('count(*) as n')->get() as $row) {
-            $members[(int) $row->cid] = (int) $row->n;
-        }
+        $members = Counts::by($this->db->table('parley_participants')->whereIn('conversation_id', $ids), 'conversation_id');
 
         // Members of each room who are online and not hiding, in one query.
-        // The column inside count() goes through the grammar's wrap(), which
-        // applies the table prefix — a bare raw `pr.user_id` would not.
-        $online = [];
         $cutoff = date('Y-m-d H:i:s', time() - PresenceStore::WINDOW);
-        $userCol = $this->db->getQueryGrammar()->wrap('pr.user_id');
-        foreach ($this->db->table('parley_participants as p')
-            ->join('parley_presence as pr', 'pr.user_id', '=', 'p.user_id')
-            ->whereIn('p.conversation_id', $ids)
-            ->where('pr.last_seen_at', '>=', $cutoff)
-            ->where('pr.status', '!=', 'invisible')
-            ->groupBy('p.conversation_id')
-            ->select('p.conversation_id as cid')->selectRaw("count(distinct {$userCol}) as n")->get() as $row) {
-            $online[(int) $row->cid] = (int) $row->n;
-        }
+        $online = Counts::by(
+            $this->db->table('parley_participants as p')
+                ->join('parley_presence as pr', 'pr.user_id', '=', 'p.user_id')
+                ->whereIn('p.conversation_id', $ids)
+                ->where('pr.last_seen_at', '>=', $cutoff)
+                ->where('pr.status', '!=', 'invisible'),
+            'p.conversation_id',
+            'pr.user_id'
+        );
 
         return $this->extend(array_map(fn ($room) => $this->card($room) + [
             'children' => $childCount[(int) $room->id] ?? 0,
@@ -206,7 +205,7 @@ class Rooms
      */
     public function extend(array $cards, ?User $viewer = null): array
     {
-        foreach (self::$cardExtenders as $extender) {
+        foreach ($this->registry->cardExtenders() as $extender) {
             $cards = $extender($cards, $viewer);
         }
 
@@ -270,6 +269,15 @@ class Rooms
      * Members to push a room event to: only the ones who can still see it, so
      * a room moved under a staff tag stops reaching members who lost access.
      *
+     * Runs on every send, edit, reaction, pin and typing signal, so it is a
+     * fixed handful of queries however many members there are (members with
+     * their groups, the tag, who holds its permissions: TagVisibility::
+     * whoCanSee()), remembered for a minute per room, tag and member list.
+     * Moving the room to another tag or a member joining or leaving changes
+     * the key and takes effect at once; a change to a group's permissions
+     * reaches pushes within the minute.
+     *
+     * @param  int[]  $memberIds
      * @return int[]
      */
     public function audience(object $room, array $memberIds): array
@@ -278,9 +286,14 @@ class Rooms
             return $memberIds;
         }
 
-        return User::query()->whereIn('id', $memberIds)->with('groups')->get()
-            ->filter(fn (User $u) => isset($this->tagsVisibleTo($u)[(int) $room->tag_id]))
-            ->map(fn (User $u) => (int) $u->id)->values()->all();
+        $ids = array_values(array_unique(array_map('intval', $memberIds)));
+        sort($ids);
+        $key = 'parley.audience.'.(int) $room->id.'.'.(int) $room->tag_id.'.'.md5(implode(',', $ids));
+
+        return $this->cache->remember($key, self::AUDIENCE_TTL, fn () => $this->tags->whoCanSee(
+            (int) $room->tag_id,
+            User::query()->whereIn('id', $ids)->with('groups')->orderBy('id')->get()->all()
+        ));
     }
 
     // ── Administration ──────────────────────────────────────────────────────
@@ -358,6 +371,10 @@ class Rooms
 
     public function destroy(object $room): void
     {
+        // Before the rows go (deleting the room cascades its messages away):
+        // its messages' files, less any a message elsewhere still shows.
+        $this->files->forgetConversation((int) $room->id);
+
         $this->images->remove($room);
         // Its teams move up a level rather than disappearing with it.
         $this->db->table('parley_conversations')->where('parent_id', $room->id)->update(['parent_id' => null]);
@@ -371,11 +388,7 @@ class Rooms
             ->orderBy('position')->orderBy('id')->get();
 
         // One grouped count: FBSFB alone has 147 rooms.
-        $members = [];
-        foreach ($this->db->table('parley_participants')->whereIn('conversation_id', $rooms->pluck('id'))
-            ->groupBy('conversation_id')->select('conversation_id as cid')->selectRaw('count(*) as n')->get() as $row) {
-            $members[(int) $row->cid] = (int) $row->n;
-        }
+        $members = Counts::by($this->db->table('parley_participants')->whereIn('conversation_id', $rooms->pluck('id')), 'conversation_id');
 
         return $this->extend($rooms->map(fn ($r) => $this->card($r) + [
             'members' => $members[(int) $r->id] ?? 0,
@@ -416,7 +429,8 @@ class Rooms
         return $this->tagLooks[$tagId] ?? ['icon' => null, 'color' => null];
     }
 
-    private function uniqueSlug(string $name): string
+    /** A slug for a new room from its name, -2, -3… when it is taken. */
+    public function uniqueSlug(string $name): string
     {
         $base = Str::slug($name) ?: 'room';
         $slug = $base;

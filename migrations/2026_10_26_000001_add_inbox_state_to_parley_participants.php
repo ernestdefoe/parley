@@ -15,7 +15,7 @@ return [
         $schema->table('parley_participants', function (Blueprint $table) {
             $table->dateTime('archived_at')->nullable();
             $table->boolean('starred')->default(false);
-            // One of Labels::COLOURS, or null.
+            // One of Conversations::LABELS, or null.
             $table->string('label', 16)->nullable();
             // owner | member, in a group conversation.
             $table->string('role', 8)->default('member');

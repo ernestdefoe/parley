@@ -108,7 +108,8 @@ app.initializers.add('ernestdefoe-parley', () => {
     if (!app.parley) return;
     // Parley only starts for a signed-in member.
     const user = app.session.user!;
-    const current = user.preferences()?.parleyWhoCanMessage || 'everyone';
+    // Core sends registered preferences with their defaults filled in.
+    const current = user.preferences()?.parleyWhoCanMessage;
 
     items.add(
       'parleyWhoCanMessage',

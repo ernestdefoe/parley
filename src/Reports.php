@@ -4,7 +4,9 @@ namespace Ernestdefoe\Parley;
 
 use Carbon\Carbon;
 use Ernestdefoe\Parley\Notification\ReportBlueprint;
+use Flarum\Foundation\ValidationException;
 use Flarum\Group\Group;
+use Flarum\Locale\TranslatorInterface;
 use Flarum\Notification\NotificationSyncer;
 use Flarum\User\User;
 use Illuminate\Database\ConnectionInterface;
@@ -23,7 +25,9 @@ class Reports
         protected ConnectionInterface $db,
         protected Conversations $conversations,
         protected People $people,
-        protected NotificationSyncer $notifications
+        protected NotificationSyncer $notifications,
+        protected RateLimit $rateLimit,
+        protected TranslatorInterface $translator
     ) {
     }
 
@@ -35,6 +39,16 @@ class Reports
             || (int) $message->user_id === $reporter->id) {
             throw new ModelNotFoundException();
         }
+
+        // Once is enough: a report stays open until a moderator resolves it.
+        $open = $this->db->table('parley_reports')->where('message_id', $messageId)
+            ->where('reporter_id', $reporter->id)->whereNull('resolved_at')->exists();
+        if ($open) {
+            throw new ValidationException(['message' => $this->translator->trans('ernestdefoe-parley.api.already_reported')]);
+        }
+
+        // Every report alerts the moderators: ten an hour per person.
+        $this->rateLimit->hit('reports', $reporter->id, 10, 3600);
 
         $rows = $this->db->table('parley_messages')
             ->where('conversation_id', $message->conversation_id)

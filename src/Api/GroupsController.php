@@ -4,6 +4,7 @@ namespace Ernestdefoe\Parley\Api;
 
 use Ernestdefoe\Parley\Conversations;
 use Ernestdefoe\Parley\Gate;
+use Ernestdefoe\Parley\Inbox;
 use Ernestdefoe\Parley\Groups;
 use Flarum\Foundation\ValidationException;
 use Flarum\Locale\TranslatorInterface;
@@ -24,6 +25,7 @@ class GroupsController extends Controller
         protected Gate $gate,
         protected Groups $groups,
         protected Conversations $conversations,
+        protected Inbox $inbox,
         protected TranslatorInterface $translator
     ) {
     }
@@ -37,7 +39,7 @@ class GroupsController extends Controller
             $group = $this->groups->create($actor, (array) $this->input($request, 'userIds', []), $this->input($request, 'name'));
 
             return [
-                'conversation' => $this->conversations->summary($group, $actor),
+                'conversation' => $this->inbox->summary($group, $actor),
                 'messages' => $this->conversations->messages((int) $group->id),
             ];
         }
@@ -62,7 +64,7 @@ class GroupsController extends Controller
         $fresh = $this->conversations->row((int) $group->id) ?? $group;
 
         return [
-            'conversation' => $this->conversations->summary($fresh, $actor),
+            'conversation' => $this->inbox->summary($fresh, $actor),
             'members' => $this->groups->members($group),
         ];
     }

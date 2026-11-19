@@ -20,7 +20,8 @@ class MessageActions
         protected Conversations $conversations,
         protected Rooms $rooms,
         protected Broadcaster $broadcaster,
-        protected TranslatorInterface $translator
+        protected TranslatorInterface $translator,
+        protected MessageFiles $files
     ) {
     }
 
@@ -86,13 +87,17 @@ class MessageActions
             && ! $message->deleted_at;
 
         if (! $moderating) {
-            $this->ownMessage($messageId, $actor);
+            $message = $this->ownMessage($messageId, $actor);
         }
 
         $this->db->table('parley_messages')->where('id', $messageId)
             ->update(['deleted_at' => date('Y-m-d H:i:s')]);
         $this->db->table('parley_reactions')->where('message_id', $messageId)->delete();
         $this->db->table('parley_pins')->where('message_id', $messageId)->delete();
+
+        // A deleted message is never shown again, so neither is its photo or
+        // file: the bytes go too, unless a forwarded copy still shows them.
+        $this->files->forgetMessage($message);
 
         return $this->changed($messageId);
     }

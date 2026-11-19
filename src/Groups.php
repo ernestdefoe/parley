@@ -4,10 +4,10 @@ namespace Ernestdefoe\Parley;
 
 use Flarum\Foundation\ValidationException;
 use Flarum\Locale\TranslatorInterface;
+use Flarum\Post\Exception\FloodingException;
 use Flarum\Settings\SettingsRepositoryInterface;
 use Flarum\User\Exception\PermissionDeniedException;
 use Flarum\User\User;
-use Illuminate\Contracts\Cache\Repository as Cache;
 use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Psr\Http\Message\UploadedFileInterface;
@@ -38,7 +38,8 @@ class Groups
         protected Broadcaster $broadcaster,
         protected SettingsRepositoryInterface $settings,
         protected TranslatorInterface $translator,
-        protected Cache $cache
+        protected RateLimit $rateLimit,
+        protected MessageFiles $files
     ) {
     }
 
@@ -70,12 +71,12 @@ class Groups
         $this->refuseBlocked([$actor->id, ...array_map(fn (User $u) => (int) $u->id, $others)], $others);
 
         // Ten new groups an hour is plenty for a person; a script makes more.
-        $key = 'parley.groups.'.$actor->id;
-        $made = (int) $this->cache->get($key, 0);
-        if ($made >= 10) {
+        // Said as a field error, as it always was, rather than the bare 429.
+        try {
+            $this->rateLimit->hit('groups', $actor->id, 10, 3600);
+        } catch (FloodingException) {
             $this->fail('userIds', 'group_flood');
         }
-        $this->cache->put($key, $made + 1, 3600);
 
         $now = date('Y-m-d H:i:s');
         $id = $this->db->transaction(function () use ($actor, $others, $name, $now) {
@@ -184,6 +185,8 @@ class Groups
         // The last one out leaves nothing behind.
         if (! $left->exists()) {
             $this->photos->remove($group->image_path);
+            // Before the row goes: its messages go with it, by cascade.
+            $this->files->forgetConversation((int) $group->id);
             $this->db->table('parley_conversations')->where('id', $group->id)->delete();
 
             return;
@@ -227,6 +230,8 @@ class Groups
     /** @param  list<User>  $users */
     private function insertMembers(int $conversationId, User $actor, array $users, string $now, ?int $readUpTo): void
     {
+        $requests = $this->gate->requestsAmong($actor, $users);
+
         $this->db->table('parley_participants')->insert(array_map(fn (User $u) => [
             'conversation_id' => $conversationId,
             'user_id' => $u->id,
@@ -234,7 +239,7 @@ class Groups
             'role' => 'member',
             // History is there to scroll, not a pile of unread.
             'last_read_message_id' => $readUpTo,
-            'requested_at' => $this->gate->landsInRequests($actor, $u) ? $now : null,
+            'requested_at' => isset($requests[(int) $u->id]) ? $now : null,
         ], $users));
     }
 
@@ -256,13 +261,16 @@ class Groups
             $this->fail('userIds', 'group_too_big', ['max' => $this->maxMembers()]);
         }
 
-        $users = User::query()->whereVisibleTo($actor)->whereIn('id', $ids)->get();
+        // Groups loaded with them: whether each may use Parley is then
+        // answered for the whole list without a query per person.
+        $users = User::query()->whereVisibleTo($actor)->whereIn('users.id', $ids)->with('groups')->get();
         if ($users->count() !== count($ids)) {
             throw new ModelNotFoundException();
         }
 
+        $refused = $this->gate->refusals($actor, $users);
         foreach ($users as $user) {
-            if ($reason = $this->gate->refusal($actor, $user)) {
+            if ($reason = $refused[(int) $user->id] ?? null) {
                 throw new ValidationException(['userIds' => $this->translator->trans('ernestdefoe-parley.api.refusal.'.$reason, ['name' => $user->display_name])]);
             }
         }

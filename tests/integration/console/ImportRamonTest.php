@@ -3,6 +3,7 @@
 namespace Ernestdefoe\Parley\Tests\integration\console;
 
 use Carbon\Carbon;
+use Ernestdefoe\Parley\Console\ImportRamonCommand;
 use Flarum\Testing\integration\ConsoleTestCase;
 use Flarum\User\User;
 use Illuminate\Database\Schema\Blueprint;
@@ -24,7 +25,7 @@ class ImportRamonTest extends ConsoleTestCase
 
         $now = Carbon::now();
         $user = fn (int $id, string $name) => ['id' => $id, 'username' => $name, 'email' => "$name@machine.local", 'password' => 'x', 'is_email_confirmed' => 1, 'joined_at' => $now];
-        $this->prepareDatabase([User::class => [$user(2, 'ana'), $user(3, 'ben')]]);
+        $this->prepareDatabase([User::class => [$user(2, 'ana'), $user(3, 'ben'), $user(4, 'cy')]]);
     }
 
     protected function tearDown(): void
@@ -143,5 +144,48 @@ class ImportRamonTest extends ConsoleTestCase
         $count = $db->table('parley_messages')->count();
         $this->runCommand(['command' => 'parley:import-ramon']);
         $this->assertSame($count, $db->table('parley_messages')->count(), 'A second run adds nothing');
+    }
+
+    #[Test]
+    public function channels_are_read_a_chunk_at_a_time_and_members_written_in_one_statement()
+    {
+        $this->sourceTables();
+        $db = $this->database();
+        $now = Carbon::now();
+
+        // One chunk and one more: group channels 100.., then a second
+        // channel between 2 and 3 that must land in the conversation the
+        // first chunk opened for them (pair_key is unique).
+        $groups = range(100, 100 + ImportRamonCommand::CHUNK - 1);
+        $db->table('chat_channels')->insert(array_map(fn ($id) => ['id' => $id, 'type' => 'direct', 'name' => "Group $id", 'creator_id' => 2, 'created_at' => $now], $groups));
+        $db->table('chat_channels')->insert(['id' => 500, 'type' => 'direct', 'creator_id' => 3, 'created_at' => $now]);
+        $members = [['channel_id' => 500, 'user_id' => 2], ['channel_id' => 500, 'user_id' => 3]];
+        $said = [['id' => 5000, 'channel_id' => 500, 'user_id' => 3, 'type' => 'text', 'content' => '<t>Second channel, https://example.com</t>', 'created_at' => $now]];
+        foreach ($groups as $id) {
+            foreach ([2, 3, 4] as $user) {
+                $members[] = ['channel_id' => $id, 'user_id' => $user];
+            }
+            $said[] = ['id' => $id * 10, 'channel_id' => $id, 'user_id' => 2, 'type' => 'text', 'content' => "<t>Hello $id</t>", 'created_at' => $now];
+        }
+        $db->table('chat_channel_user')->insert($members);
+        $db->table('chat_messages')->insert($said);
+
+        $db->flushQueryLog();
+        $db->enableQueryLog();
+        $this->runCommand(['command' => 'parley:import-ramon']);
+        $log = $db->getQueryLog();
+        $db->disableQueryLog();
+
+        $direct = $db->table('parley_conversations')->where('pair_key', '2:3')->first();
+        $this->assertSame(3, $db->table('parley_messages')->where('conversation_id', $direct->id)->count(), 'Both channels between 2 and 3 share one conversation');
+        $this->assertTrue((bool) $db->table('parley_messages')->where('conversation_id', $direct->id)->orderByDesc('id')->value('has_link'));
+        $this->assertSame(ImportRamonCommand::CHUNK, $db->table('parley_conversations')->where('is_group', true)->where('type', 'direct')->count());
+        $this->assertSame(3 * ImportRamonCommand::CHUNK + 2 + 1, $db->table('parley_participants')->count());
+
+        $touching = fn (string $table, string $verb) => count(array_filter($log, fn ($q) => stripos($q['query'], $verb) === 0 && str_contains($q['query'], $table)));
+        // Two chunks of direct channels and one of tag channels.
+        $this->assertSame(3, $touching('chat_channel_user', 'select'), 'Members are read per chunk, not per channel');
+        // CHUNK groups, the 2:3 conversation twice and the room.
+        $this->assertSame(ImportRamonCommand::CHUNK + 3, $touching('parley_participants', 'insert'), 'One statement per conversation, not per member');
     }
 }

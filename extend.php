@@ -8,6 +8,7 @@ use Ernestdefoe\Parley\Notification\NewMessageBlueprint;
 use Ernestdefoe\Parley\Notification\ReportBlueprint;
 use Ernestdefoe\Parley\Notification\RoomMentionBlueprint;
 use Ernestdefoe\Parley\ParleyServiceProvider;
+use Ernestdefoe\Parley\Realtime\RealtimeServiceProvider;
 use Ernestdefoe\Parley\Tags\TagsServiceProvider;
 use Ernestdefoe\Parley\UploadsDisk;
 use Flarum\Api\Resource\ForumResource;
@@ -50,7 +51,6 @@ return [
         ->post('/parley/conversations', 'ernestdefoe-parley.conversations.open', Api\ConversationsController::class)
         ->get('/parley/conversations/{id:\d+}', 'ernestdefoe-parley.conversation', Api\ShowConversationController::class)
         ->post('/parley/conversations/{id:\d+}/messages', 'ernestdefoe-parley.send', Api\SendMessageController::class)
-        ->post('/parley/conversations/{id:\d+}/images', 'ernestdefoe-parley.image.upload', Api\UploadImageController::class)
         ->post('/parley/conversations/{id:\d+}/files', 'ernestdefoe-parley.file.upload', Api\UploadFileController::class)
         ->get('/parley/conversations/{id:\d+}/details', 'ernestdefoe-parley.details', Api\DetailsController::class)
         ->post('/parley/conversations/{id:\d+}/{action:read|typing|hide|mute|accept|settings}', 'ernestdefoe-parley.conversation.action', Api\ConversationActionController::class)
@@ -66,7 +66,6 @@ return [
         ->post('/parley/messages/{id:\d+}/pin', 'ernestdefoe-parley.message.pin', Api\MessageActionController::class)
         ->post('/parley/messages/{id:\d+}/forward', 'ernestdefoe-parley.message.forward', Api\MessageActionController::class)
         ->post('/parley/messages/{id:\d+}/report', 'ernestdefoe-parley.report', Api\ReportsController::class)
-        ->get('/parley/images/{id:\d+}', 'ernestdefoe-parley.image', Api\ImageController::class)
         ->get('/parley/files/{id:\d+}', 'ernestdefoe-parley.file', Api\ImageController::class)
         ->get('/parley/search', 'ernestdefoe-parley.search', Api\SearchController::class)
         ->get('/parley/people', 'ernestdefoe-parley.people', Api\PeopleController::class)
@@ -109,5 +108,11 @@ return [
     (new Extend\Conditional())
         ->whenExtensionEnabled('flarum-tags', fn () => [
             (new Extend\ServiceProvider())->register(TagsServiceProvider::class),
+        ]),
+
+    // Messages, typing and read receipts pushed as they happen.
+    (new Extend\Conditional())
+        ->whenExtensionEnabled('flarum-realtime', fn () => [
+            (new Extend\ServiceProvider())->register(RealtimeServiceProvider::class),
         ]),
 ];

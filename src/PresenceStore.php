@@ -99,20 +99,20 @@ class PresenceStore
                 : $now;
         }
 
-        $this->db->table('parley_presence')->updateOrInsert(
-            ['visitor_key' => $visitorKey],
-            [
-                'user_id' => $actor && ! $actor->isGuest() ? $actor->id : null,
-                'status' => $status,
-                'place' => $place,
-                'discussion_id' => $discussionId,
-                'near_number' => $discussionId ? $this->positiveOrNull($where['near'] ?? null) : null,
-                'tag_id' => $this->positiveOrNull($where['tagId'] ?? null),
-                'room_id' => $roomId,
-                'away_since' => $awaySince,
-                'last_seen_at' => $now,
-            ]
-        );
+        // One atomic upsert on the unique visitor key: two tabs beating at
+        // the same moment cannot both insert.
+        $row = [
+            'user_id' => $actor && ! $actor->isGuest() ? $actor->id : null,
+            'status' => $status,
+            'place' => $place,
+            'discussion_id' => $discussionId,
+            'near_number' => $discussionId ? $this->positiveOrNull($where['near'] ?? null) : null,
+            'tag_id' => $this->positiveOrNull($where['tagId'] ?? null),
+            'room_id' => $roomId,
+            'away_since' => $awaySince,
+            'last_seen_at' => $now,
+        ];
+        $this->db->table('parley_presence')->upsert([['visitor_key' => $visitorKey] + $row], ['visitor_key'], array_keys($row));
 
         // Housekeeping, queued at most once per PRUNE_EVERY: cache add() is
         // atomic, so one heartbeat in that time wins and the rest skip it.
@@ -149,18 +149,36 @@ class PresenceStore
     }
 
     /**
-     * Every member row inside the window, newest first.
+     * Member rows inside the window, newest first: the latest $limit of them,
+     * plus the rows of $alsoIds wherever they fall (the people a viewer
+     * follows are shown online however many others are).
      *
+     * @param  int[]  $alsoIds
      * @return list<object>
      */
-    public function onlineMembers(): array
+    public function onlineMembers(int $limit, array $alsoIds = []): array
+    {
+        $online = $this->db->table('parley_presence')
+            ->whereNotNull('user_id')
+            ->where('last_seen_at', '>=', $this->cutoff());
+
+        $rows = (clone $online)->orderByDesc('last_seen_at')->limit($limit)->get();
+
+        if ($alsoIds !== []) {
+            $rows = $rows->concat((clone $online)->whereIn('user_id', $alsoIds)->get())->unique('user_id');
+        }
+
+        return $rows->values()->all();
+    }
+
+    /** How many members are online and not appearing offline: the figure behind "and N more". */
+    public function onlineMemberCount(): int
     {
         return $this->db->table('parley_presence')
             ->whereNotNull('user_id')
             ->where('last_seen_at', '>=', $this->cutoff())
-            ->orderByDesc('last_seen_at')
-            ->get()
-            ->all();
+            ->where('status', '!=', 'invisible')
+            ->count();
     }
 
     public function guestCount(): int
@@ -180,7 +198,6 @@ class PresenceStore
             ->exists();
     }
 
-    /** @param  int[]  $userIds  @return array<int, true> */
     /**
      * Who of these people OTHER members may be told is online: the same as
      * onlineAmong(), less anyone who chose Appear offline. Use this for

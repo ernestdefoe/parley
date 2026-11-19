@@ -5,10 +5,10 @@ namespace Ernestdefoe\Parley\Api;
 use Ernestdefoe\Parley\Conversations;
 use Ernestdefoe\Parley\Gate;
 use Ernestdefoe\Parley\Images;
+use Ernestdefoe\Parley\RateLimit;
 use Flarum\Foundation\ValidationException;
 use Flarum\Locale\TranslatorInterface;
 use Flarum\User\User;
-use Illuminate\Contracts\Cache\Repository as Cache;
 use Illuminate\Support\Arr;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Message\UploadedFileInterface;
@@ -24,7 +24,7 @@ class UploadFileController extends Controller
         protected Conversations $conversations,
         protected Images $files,
         protected TranslatorInterface $translator,
-        protected Cache $cache
+        protected RateLimit $rateLimit
     ) {
     }
 
@@ -39,12 +39,7 @@ class UploadFileController extends Controller
         }
 
         // Thirty uploads in ten minutes; the message flood limit applies too.
-        $key = 'parley.uploads.'.$actor->id;
-        $count = (int) $this->cache->get($key, 0);
-        if ($count >= 30) {
-            throw new \Flarum\Post\Exception\FloodingException();
-        }
-        $this->cache->put($key, $count + 1, 600);
+        $this->rateLimit->hit('uploads', $actor->id, 30, 600);
 
         $kind = (string) $this->input($request, 'kind', 'file');
         $kind = in_array($kind, ['image', 'video', 'voice', 'file'], true) ? $kind : 'file';

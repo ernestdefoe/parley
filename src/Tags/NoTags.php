@@ -17,6 +17,11 @@ class NoTags implements TagVisibility
         return [];
     }
 
+    public function whoCanSee(int $tagId, array $users): array
+    {
+        return [];
+    }
+
     public function looks(): array
     {
         return [];

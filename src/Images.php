@@ -23,7 +23,7 @@ use Psr\Http\Message\UploadedFileInterface;
  * 🚨 The type is read from the bytes, never from the name or the browser's
  * claim, and only the types below are kept. Nothing that a browser would run
  * — HTML, SVG, XML, scripts — is on any list, so it is refused whatever it
- * calls itself, and FileController serves the rest with nosniff and a
+ * calls itself, and ImageController serves the rest with nosniff and a
  * sandboxing policy on top.
  */
 class Images
@@ -115,20 +115,6 @@ class Images
     }
 
     /**
-     * Keep an upload as a picture: the original endpoint, kept for clients
-     * that still post to it.
-     *
-     * @return array{file: string, mime: string, w: int, h: int, size: int}
-     */
-    public function store(UploadedFileInterface $upload): array
-    {
-        $kept = $this->keep($upload, 'image');
-        unset($kept['type'], $kept['name']);
-
-        return $kept;
-    }
-
-    /**
      * Keep an upload of the kind the sender chose. A "file" that turns out to
      * be a picture or a video is kept as one, so it shows in the chat.
      *
@@ -162,7 +148,8 @@ class Images
         $meta = ['file' => '', 'mime' => self::SERVE_AS[$ext] ?? $mime, 'size' => 0];
 
         if ($type === 'image') {
-            $size = @getimagesizefromstring($bytes) ?: $this->fail('not_an_image');
+            // Measured from the header before anything decodes it (ImageBytes).
+            $size = ImageBytes::size($bytes) ?? $this->fail('not_an_image');
             [$bytes, $size] = $this->stripMetadata($bytes, $ext) ?? [$bytes, $size];
             $meta += ['w' => (int) $size[0], 'h' => (int) $size[1]];
         }

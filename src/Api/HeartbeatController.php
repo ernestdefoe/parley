@@ -3,7 +3,7 @@
 namespace Ernestdefoe\Parley\Api;
 
 use Ernestdefoe\Parley\Broadcaster;
-use Ernestdefoe\Parley\Conversations;
+use Ernestdefoe\Parley\Inbox;
 use Ernestdefoe\Parley\Gate;
 use Ernestdefoe\Parley\OnlineList;
 use Ernestdefoe\Parley\PresenceStore;
@@ -38,7 +38,7 @@ class HeartbeatController extends Controller
     public function __construct(
         protected PresenceStore $presence,
         protected OnlineList $list,
-        protected Conversations $conversations,
+        protected Inbox $inbox,
         protected Rooms $rooms,
         protected Gate $gate,
         protected Broadcaster $broadcaster,
@@ -83,12 +83,12 @@ class HeartbeatController extends Controller
             $actor->save();
         }
 
-        $unread = $this->conversations->unreadCounts($actor->id);
+        $unread = $this->inbox->unreadCounts($actor->id);
 
         return $this->list->for($actor) + [
             'rooms' => $this->rooms->listFor($actor, $unread),
             'unread' => (object) $unread,
-        ] + $this->conversations->inboxState($actor->id, $unread);
+        ] + $this->inbox->inboxState($actor->id, $unread);
     }
 
     private function signal(): void

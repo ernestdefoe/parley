@@ -27,8 +27,6 @@ class RoomImages
     /** How much of the square the logo fills, at most. */
     private const FILL = 0.86;
 
-    private const TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
-
     /** The shape of every path set() gives a logo. */
     private const NAME = '~^parley/rooms/\d+-(dark-(auto-)?)?[0-9a-f]{12}\.png$~D';
 
@@ -74,9 +72,8 @@ class RoomImages
      */
     public function set(object $room, string $bytes, string $variant = 'light'): string
     {
-        $mime = (new \finfo(FILEINFO_MIME_TYPE))->buffer($bytes) ?: '';
-        if (! in_array($mime, self::TYPES, true) || ! @getimagesizefromstring($bytes)) {
-            throw new ValidationException(['image' => $this->translator->trans('ernestdefoe-parley.api.room_image_type')]);
+        if (ImageBytes::picture($bytes) === null) {
+            $this->refuse();
         }
 
         $img = $this->redraw($bytes);
@@ -203,24 +200,7 @@ class RoomImages
                 $alpha[$y][$x] = 127 - ((imagecolorat($img, $x, $y) >> 24) & 0x7F);
             }
         }
-        $grow = function (array $a, bool $rows) use ($size, $r): array {
-            $out = [];
-            for ($y = 0; $y < $size; $y++) {
-                for ($x = 0; $x < $size; $x++) {
-                    $m = 0;
-                    for ($k = -$r; $k <= $r; $k++) {
-                        $v = $rows ? ($a[$y][$x + $k] ?? 0) : ($a[$y + $k][$x] ?? 0);
-                        if ($v > $m) {
-                            $m = $v;
-                        }
-                    }
-                    $out[$y][$x] = $m;
-                }
-            }
-
-            return $out;
-        };
-        $mask = $grow($grow($alpha, true), false);
+        $mask = $this->grow($this->grow($alpha, $size, $r, true), $size, $r, false);
 
         $out = imagecreatetruecolor($size, $size);
         imagealphablending($out, false);
@@ -235,6 +215,45 @@ class RoomImages
         imagecopy($out, $img, 0, 0, 0, 0, $size, $size);
 
         return $out;
+    }
+
+    /**
+     * Each value replaced by the largest within $r of it along rows ($rows)
+     * or columns: one pass of growing a shape by a square.
+     *
+     * @param  array<int, array<int, int>>  $a
+     * @return array<int, array<int, int>>
+     */
+    private function grow(array $a, int $size, int $r, bool $rows): array
+    {
+        $out = [];
+        for ($y = 0; $y < $size; $y++) {
+            for ($x = 0; $x < $size; $x++) {
+                $out[$y][$x] = $this->windowMax($a, $x, $y, $r, $rows);
+            }
+        }
+
+        return $out;
+    }
+
+    /** @param  array<int, array<int, int>>  $a */
+    private function windowMax(array $a, int $x, int $y, int $r, bool $rows): int
+    {
+        $m = 0;
+        for ($k = -$r; $k <= $r; $k++) {
+            $v = $rows ? ($a[$y][$x + $k] ?? 0) : ($a[$y + $k][$x] ?? 0);
+            if ($v > $m) {
+                $m = $v;
+            }
+        }
+
+        return $m;
+    }
+
+    /** @return never */
+    private function refuse(): void
+    {
+        throw new ValidationException(['image' => $this->translator->trans('ernestdefoe-parley.api.room_image_type', ['max' => GroupPhotos::MAX_MB])]);
     }
 
     private function luminance(int $r, int $g, int $b): float
@@ -255,10 +274,7 @@ class RoomImages
 
     private function redraw(string $bytes): \GdImage
     {
-        $src = @imagecreatefromstring($bytes);
-        if (! $src) {
-            throw new ValidationException(['image' => $this->translator->trans('ernestdefoe-parley.api.room_image_type')]);
-        }
+        $src = @imagecreatefromstring($bytes) ?: $this->refuse();
 
         imagepalettetotruecolor($src);
         imagealphablending($src, false);
