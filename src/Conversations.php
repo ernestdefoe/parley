@@ -500,16 +500,7 @@ class Conversations
         }
 
         $this->guardSend($conversation, $actor);
-
-        if ($type === 'text') {
-            $body = trim((string) $body);
-            if ($body === '') {
-                throw new ValidationException(['body' => $this->translator->trans('ernestdefoe-parley.api.empty_message')]);
-            }
-            if (mb_strlen($body) > self::MAX_LENGTH) {
-                throw new ValidationException(['body' => $this->translator->trans('ernestdefoe-parley.api.too_long', ['max' => self::MAX_LENGTH])]);
-            }
-        }
+        $body = $type === 'text' ? $this->validBody($body) : $body;
 
         if ($replyToId) {
             $replyTo = $this->message($replyToId);
@@ -518,14 +509,48 @@ class Conversations
             }
         }
 
-        $now = date('Y-m-d H:i:s');
-
         // Posting in a room joins it.
         if ($this->rooms->isRoom($conversation)) {
             $this->rooms->join($conversation, $actor);
         }
 
-        $id = $this->db->table('parley_messages')->insertGetId([
+        $id = $this->db->transaction(fn () => $this->store($conversation, $actor, $type, $body, $meta, $replyToId));
+
+        $payload = $this->payloads([$this->message($id)])[0];
+        if ($nonceKey) {
+            $this->cache->put($nonceKey, $id, 600);
+            $payload['nonce'] = $nonce;
+        }
+
+        $this->deliver($conversation, $actor, $type, (string) $body, $meta, $id, $payload);
+
+        return $payload;
+    }
+
+    private function validBody(?string $body): string
+    {
+        $body = trim((string) $body);
+        if ($body === '') {
+            throw new ValidationException(['body' => $this->translator->trans('ernestdefoe-parley.api.empty_message')]);
+        }
+        if (mb_strlen($body) > self::MAX_LENGTH) {
+            throw new ValidationException(['body' => $this->translator->trans('ernestdefoe-parley.api.too_long', ['max' => self::MAX_LENGTH])]);
+        }
+
+        return $body;
+    }
+
+    /**
+     * The message and the conversation's state it changes, together: a
+     * conversation never points at a message that is not there.
+     *
+     * @param  array<string, mixed>|null  $meta
+     */
+    private function store(object $conversation, User $actor, string $type, ?string $body, ?array $meta, ?int $replyToId): int
+    {
+        $now = date('Y-m-d H:i:s');
+
+        $id = (int) $this->db->table('parley_messages')->insertGetId([
             'conversation_id' => $conversation->id,
             'user_id' => $actor->id,
             'type' => $type,
@@ -552,20 +577,25 @@ class Conversations
             ->where('conversation_id', $conversation->id)->where('user_id', $actor->id)
             ->update(['last_read_message_id' => $id, 'requested_at' => null]);
 
-        $payload = $this->payloads([$this->message($id)])[0];
-        if ($nonceKey) {
-            $this->cache->put($nonceKey, $id, 600);
-            $payload['nonce'] = $nonce;
-        }
+        return $id;
+    }
 
+    /**
+     * Push a stored message to whoever should see it, and alert who should hear of it.
+     *
+     * @param  array<string, mixed>|null  $meta
+     * @param  array<string, mixed>  $payload
+     */
+    private function deliver(object $conversation, User $actor, string $type, string $body, ?array $meta, int $id, array $payload): void
+    {
         if ($this->rooms->isRoom($conversation)) {
             $members = $this->rooms->audience($conversation, $this->participantIds((int) $conversation->id));
             $this->broadcaster->toUsers($members, 'message', ['message' => $payload]);
             if ($type === 'text') {
-                $this->notifyMentions($conversation, $actor, (string) $body, $id);
+                $this->notifyMentions($conversation, $actor, $body, $id);
             }
 
-            return $payload;
+            return;
         }
 
         $recipients = $this->participantIds((int) $conversation->id);
@@ -577,7 +607,7 @@ class Conversations
         $this->broadcaster->toUsers($waiting, 'message', ['message' => $payload, 'request' => true]);
 
         $mentioned = $type === 'text' && $conversation->is_group
-            ? $this->notifyMentions($conversation, $actor, (string) $body, $id, $recipients, $waiting)
+            ? $this->notifyMentions($conversation, $actor, $body, $id, $recipients, $waiting)
             : [];
 
         // A group's own news (renamed, left, a new photo) alerts nobody; being
@@ -591,8 +621,6 @@ class Conversations
             };
         }
         $this->notifyOffline($conversation, $actor, $alert);
-
-        return $payload;
     }
 
     /**

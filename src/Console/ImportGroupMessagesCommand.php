@@ -10,6 +10,7 @@ use Flarum\Foundation\ValidationException;
 use Flarum\Formatter\Formatter;
 use Illuminate\Contracts\Filesystem\Factory;
 use Illuminate\Database\ConnectionInterface;
+use Illuminate\Support\Collection;
 use Symfony\Component\Console\Input\InputOption;
 
 /**
@@ -78,72 +79,76 @@ class ImportGroupMessagesCommand extends AbstractCommand
                 continue;
             }
 
-            $this->db->transaction(function () use ($group, $members, $rows, $existing) {
-                $id = $existing ? (int) $existing->id : $this->db->table('parley_conversations')->insertGetId([
-                    'type' => 'direct',
-                    'is_group' => true,
-                    'title' => $group->title ? mb_substr((string) $group->title, 0, 80) : null,
-                    'creator_id' => $group->owner_id,
-                    'import_key' => 'gm:'.$group->dialog_id,
-                    'image_path' => $this->photo($group->icon_url),
-                    'created_at' => $group->dialog_created_at ?? $group->created_at ?? Carbon::now(),
-                    'updated_at' => Carbon::now(),
-                ]);
-
-                // Their message ids → ours, for replies and read places.
-                $map = [];
-                foreach ($this->db->table('parley_messages')->where('conversation_id', $id)->where('import_key', 'like', 'gmm:%')->get(['id', 'import_key']) as $m) {
-                    $map[(int) substr($m->import_key, 4)] = (int) $m->id;
-                }
-
-                $replies = $rows->isEmpty() ? collect() : $this->db->table('dialog_message_replies')
-                    ->whereIn('message_id', $rows->pluck('id')->all())->pluck('reply_to_id', 'message_id');
-
-                foreach ($rows as $row) {
-                    $body = $this->plain((string) $row->content);
-                    if ($body === '') {
-                        continue;
-                    }
-
-                    $map[(int) $row->id] = $this->db->table('parley_messages')->insertGetId([
-                        'conversation_id' => $id,
-                        'user_id' => $row->user_id,
-                        'type' => 'text',
-                        'body' => mb_substr($body, 0, Conversations::MAX_LENGTH),
-                        'reply_to_id' => isset($replies[$row->id]) ? ($map[(int) $replies[$row->id]] ?? null) : null,
-                        'import_key' => 'gmm:'.$row->id,
-                        'created_at' => $row->created_at ?? Carbon::now(),
-                    ]);
-                }
-
-                $this->reactions($rows->pluck('id')->all(), $map);
-
-                $already = array_flip($this->db->table('parley_participants')->where('conversation_id', $id)->pluck('user_id')->map(fn ($u) => (int) $u)->all());
-                foreach ($members as $member) {
-                    $read = $this->readUpTo((int) $member->last_read_message_id, $map);
-                    if (isset($already[(int) $member->user_id])) {
-                        continue;
-                    }
-                    $this->db->table('parley_participants')->insert([
-                        'conversation_id' => $id,
-                        'user_id' => $member->user_id,
-                        'joined_at' => $member->joined_at ?? Carbon::now(),
-                        'last_read_message_id' => $read,
-                        'role' => (int) $member->user_id === (int) $group->owner_id ? 'owner' : 'member',
-                    ]);
-                }
-
-                $last = $this->db->table('parley_messages')->where('conversation_id', $id)->orderByDesc('id')->first();
-                if ($last) {
-                    $this->db->table('parley_conversations')->where('id', $id)
-                        ->update(['last_message_id' => $last->id, 'last_message_at' => $last->created_at]);
-                }
-            });
+            $this->db->transaction(fn () => $this->importGroup($group, $members, $rows, $existing));
         }
 
         $this->info(($dry ? 'Would import' : 'Imported')." $made new group(s) and $added message(s) from Group Messages.");
 
         return 0;
+    }
+
+    /** One group, in one transaction: new rows only, keyed to where they came from. */
+    private function importGroup(object $group, Collection $members, Collection $rows, ?object $existing): void
+    {
+        $id = $existing ? (int) $existing->id : $this->db->table('parley_conversations')->insertGetId([
+            'type' => 'direct',
+            'is_group' => true,
+            'title' => $group->title ? mb_substr((string) $group->title, 0, 80) : null,
+            'creator_id' => $group->owner_id,
+            'import_key' => 'gm:'.$group->dialog_id,
+            'image_path' => $this->photo($group->icon_url),
+            'created_at' => $group->dialog_created_at ?? $group->created_at ?? Carbon::now(),
+            'updated_at' => Carbon::now(),
+        ]);
+
+        // Their message ids → ours, for replies and read places.
+        $map = [];
+        foreach ($this->db->table('parley_messages')->where('conversation_id', $id)->where('import_key', 'like', 'gmm:%')->get(['id', 'import_key']) as $m) {
+            $map[(int) substr($m->import_key, 4)] = (int) $m->id;
+        }
+
+        $replies = $rows->isEmpty() ? collect() : $this->db->table('dialog_message_replies')
+            ->whereIn('message_id', $rows->pluck('id')->all())->pluck('reply_to_id', 'message_id');
+
+        foreach ($rows as $row) {
+            $body = $this->plain((string) $row->content);
+            if ($body === '') {
+                continue;
+            }
+
+            $map[(int) $row->id] = $this->db->table('parley_messages')->insertGetId([
+                'conversation_id' => $id,
+                'user_id' => $row->user_id,
+                'type' => 'text',
+                'body' => mb_substr($body, 0, Conversations::MAX_LENGTH),
+                'reply_to_id' => isset($replies[$row->id]) ? ($map[(int) $replies[$row->id]] ?? null) : null,
+                'import_key' => 'gmm:'.$row->id,
+                'created_at' => $row->created_at ?? Carbon::now(),
+            ]);
+        }
+
+        $this->reactions($rows->pluck('id')->all(), $map);
+
+        $already = array_flip($this->db->table('parley_participants')->where('conversation_id', $id)->pluck('user_id')->map(fn ($u) => (int) $u)->all());
+        foreach ($members as $member) {
+            $read = $this->readUpTo((int) $member->last_read_message_id, $map);
+            if (isset($already[(int) $member->user_id])) {
+                continue;
+            }
+            $this->db->table('parley_participants')->insert([
+                'conversation_id' => $id,
+                'user_id' => $member->user_id,
+                'joined_at' => $member->joined_at ?? Carbon::now(),
+                'last_read_message_id' => $read,
+                'role' => (int) $member->user_id === (int) $group->owner_id ? 'owner' : 'member',
+            ]);
+        }
+
+        $last = $this->db->table('parley_messages')->where('conversation_id', $id)->orderByDesc('id')->first();
+        if ($last) {
+            $this->db->table('parley_conversations')->where('id', $id)
+                ->update(['last_message_id' => $last->id, 'last_message_at' => $last->created_at]);
+        }
     }
 
     /**
