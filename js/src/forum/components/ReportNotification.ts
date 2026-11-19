@@ -13,7 +13,7 @@ export default class ReportNotification extends Notification {
 
   content() {
     return app.translator.trans('ernestdefoe-parley.forum.notifications.report', {
-      username: this.attrs.notification.subject()?.displayName?.(),
+      username: (this.attrs.notification.subject() as { displayName?: () => string } | null)?.displayName?.(),
     });
   }
 

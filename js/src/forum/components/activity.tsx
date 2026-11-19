@@ -1,15 +1,28 @@
 import app from 'flarum/forum/app';
 import extractText from 'flarum/common/utils/extractText';
 import humanTime from 'flarum/common/utils/humanTime';
+import type Model from 'flarum/common/Model';
+import type Discussion from 'flarum/common/models/Discussion';
+import type { Activity } from '../types';
 
-const t = (key, params) => app.translator.trans('ernestdefoe-parley.forum.activity.' + key, params);
+/** Flarum Tags' model, as far as this file reads it. */
+type Tag = Model & { name(): string };
+
+/** What these lines read from a person on the online list. */
+export interface Presence {
+  status?: string;
+  activity?: Activity | null;
+  lastSeenAt?: string | null;
+}
+
+const t = (key: string, params: Record<string, unknown> = {}) => app.translator.trans('ernestdefoe-parley.forum.activity.' + key, params);
 
 /**
  * The line under a name in the online list: "Reading · <b>Ohio State at
  * Michigan</b>". The label is bold in the accent colour when it names a place
  * you can go, as in the mockup.
  */
-export function activityLine(p) {
+export function activityLine(p: Presence) {
   const a = p.activity;
 
   if (p.status === 'offline') {
@@ -40,7 +53,7 @@ export function activityLine(p) {
 }
 
 /** The quieter line in a window header: "Reading · Ohio State…", "Active now". */
-export function presenceLine(p) {
+export function presenceLine(p: Presence) {
   const a = p.activity;
   if (p.status === 'offline') {
     return extractText(p.lastSeenAt ? t('last_seen', { ago: humanTime(p.lastSeenAt) }) : t('offline'));
@@ -52,7 +65,7 @@ export function presenceLine(p) {
 }
 
 /** Where "Go to" takes you, or null when there is nowhere to go. */
-export function activityHref(p) {
+export function activityHref(p: Presence) {
   const a = p.activity;
   if (!a) return null;
   if (a.discussionId) {
@@ -68,19 +81,20 @@ export function activityHref(p) {
  * so your own row changes the moment you move. Same words others see for you,
  * with the place's name taken from what this page has already loaded.
  */
-export function ownActivity() {
+export function ownActivity(): Activity | null {
   const w = app.parley.where();
   if (w.place === 'voice' || w.place === 'room') {
-    const room = app.parley.room(w.roomId) || app.parley.conv(w.roomId)?.summary?.room;
+    // A voice or room place always names its room.
+    const room = app.parley.room(w.roomId!) || app.parley.conv(w.roomId!)?.summary?.room;
     return room ? { verb: w.place === 'voice' ? 'in_voice' : 'chatting', label: room.name, roomId: w.roomId } : null;
   }
   if (w.place === 'discussion' || w.place === 'reply') {
-    const d = w.discussionId && app.store.getById('discussions', String(w.discussionId));
+    const d = w.discussionId && app.store.getById<Discussion>('discussions', String(w.discussionId));
     if (!d) return null;
     return { verb: w.place === 'reply' ? 'replying' : 'reading', label: d.title() };
   }
   if (w.place === 'tag' && w.tagId) {
-    const tag = app.store.getById('tags', String(w.tagId));
+    const tag = app.store.getById<Tag>('tags', String(w.tagId));
     return tag ? { verb: 'browsing', label: tag.name() } : null;
   }
   if (w.place === 'index') return { verb: 'browsing_all', label: null };

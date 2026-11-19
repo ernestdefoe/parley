@@ -33,6 +33,14 @@ class ImportGroupMessagesTest extends ConsoleTestCase
             $schema->dropIfExists($table);
         }
 
+        // ...so what the import wrote was committed too: take it away, or
+        // the next run's fixtures collide with it.
+        if ($this->database()->getDriverName() === 'mysql') {
+            foreach (['parley_reactions', 'parley_pins', 'parley_messages', 'parley_participants', 'parley_conversations'] as $table) {
+                $this->database()->table($table)->delete();
+            }
+        }
+
         parent::tearDown();
     }
 

@@ -1,18 +1,26 @@
 import app from 'flarum/forum/app';
 import Component from 'flarum/common/Component';
+import type { ComponentAttrs } from 'flarum/common/Component';
+import type Mithril from 'mithril';
 import ItemList from 'flarum/common/utils/ItemList';
 import extractText from 'flarum/common/utils/extractText';
 import Avatar from './Avatar';
 import Icons from '../icons';
 import { activityLine, activityHref } from './activity';
+import type { Person } from '../types';
 
-const t = (key, params) => app.translator.trans('ernestdefoe-parley.forum.' + key, params);
+const t = (key: string, params: Record<string, unknown> = {}) => app.translator.trans('ernestdefoe-parley.forum.' + key, params);
 
 /**
  * One person in the online list. Click anywhere on the row to message them;
  * hover for the buttons on the right.
  */
-export default class PersonRow extends Component {
+export interface PersonRowAttrs extends ComponentAttrs {
+  person: Person;
+  unread?: number;
+}
+
+export default class PersonRow extends Component<PersonRowAttrs> {
   view() {
     const p = this.attrs.person;
     const unread = this.attrs.unread || 0;
@@ -25,7 +33,7 @@ export default class PersonRow extends Component {
         role="button"
         aria-label={extractText(t('rail.message_person', { name }))}
         onclick={() => app.parley.openWith(p.id)}
-        onkeydown={(e) => {
+        onkeydown={(e: KeyboardEvent) => {
           if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) {
             e.preventDefault();
             app.parley.openWith(p.id);
@@ -41,7 +49,7 @@ export default class PersonRow extends Component {
           <div className="pl-act">{activityLine(p)}</div>
         </div>
         {unread ? <span className="pl-unread">{unread}</span> : null}
-        <span className="pl-acts" onclick={(e) => e.stopPropagation()}>
+        <span className="pl-acts" onclick={(e: MouseEvent) => e.stopPropagation()}>
           {this.actionItems(p).toArray()}
         </span>
       </div>
@@ -52,8 +60,8 @@ export default class PersonRow extends Component {
    * The hover buttons. Parley Calls adds voice and video here and takes the
    * message button away, exactly as the two editions differ in the mockup.
    */
-  actionItems(p) {
-    const items = new ItemList();
+  actionItems(p: Person): ItemList<Mithril.Children> {
+    const items = new ItemList<Mithril.Children>();
     const href = activityHref(p);
 
     // In a room you can see: "Go to" opens the room itself.
@@ -64,7 +72,7 @@ export default class PersonRow extends Component {
           className="pl-ib"
           title={extractText(t('rail.go_to', { place: p.activity.label }))}
           aria-label={extractText(t('rail.go_to', { place: p.activity.label }))}
-          onclick={() => app.parley.openRoom(p.activity.roomId)}
+          onclick={() => app.parley.openRoom(p.activity!.roomId!)}
         >
           {Icons.goto()}
         </button>,
@@ -78,9 +86,9 @@ export default class PersonRow extends Component {
         <a
           className="pl-ib"
           href={href}
-          title={extractText(t('rail.go_to', { place: p.activity.label }))}
-          aria-label={extractText(t('rail.go_to', { place: p.activity.label }))}
-          onclick={(e) => {
+          title={extractText(t('rail.go_to', { place: p.activity!.label }))}
+          aria-label={extractText(t('rail.go_to', { place: p.activity!.label }))}
+          onclick={(e: MouseEvent) => {
             e.preventDefault();
             m.route.set(href);
           }}

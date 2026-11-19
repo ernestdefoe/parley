@@ -1,13 +1,22 @@
 import app from 'flarum/forum/app';
-import Component from 'flarum/common/Component';
+import Component, { type ComponentAttrs } from 'flarum/common/Component';
+import type Mithril from 'mithril';
 import extractText from 'flarum/common/utils/extractText';
 import Avatar from './Avatar';
 import Icons from '../icons';
 import api from '../api';
 import { runPosition, clock, tally, linkParts, mentionParts } from '../util';
 import { systemLine, duration, fileSize } from '../labels';
+import type { ConvEntry as Conv, Message, Person, Reaction } from '../types';
 
-const t = (key, params) => app.translator.trans('ernestdefoe-parley.forum.window.' + key, params);
+export interface MessageListAttrs extends ComponentAttrs {
+  conv: Conv;
+}
+
+/** Mithril reads `redraw = false` off an event to skip the redraw after it. */
+type QuietEvent<E extends Event> = E & { redraw?: boolean };
+
+const t = (key: string, params: Record<string, unknown> = {}) => app.translator.trans('ernestdefoe-parley.forum.window.' + key, params);
 
 /**
  * The messages in one conversation, the way a chat app draws them: runs of
@@ -15,32 +24,42 @@ const t = (key, params) => app.translator.trans('ernestdefoe-parley.forum.window
  * time under the last of a run, reactions tucked under the bubble, a divider
  * for each day and one where the unread starts.
  */
-export default class MessageList extends Component {
-  oninit(vnode) {
+export default class MessageList extends Component<MessageListAttrs> {
+  atBottom!: boolean;
+  menuFor!: number | null;
+  confirmDelete!: number | null;
+  trayFor?: number | null;
+  firstId?: number;
+  heightBefore?: number | null;
+  pressAt?: [number, number];
+  pressTimer?: ReturnType<typeof setTimeout>;
+
+  oninit(vnode: Mithril.Vnode<MessageListAttrs, this>) {
     super.oninit(vnode);
     this.atBottom = true;
     this.menuFor = null;
     this.confirmDelete = null;
   }
 
-  oncreate(vnode) {
+  oncreate(vnode: Mithril.VnodeDOM<MessageListAttrs, this>) {
     super.oncreate(vnode);
-    if (!this.jump(vnode.dom)) {
+    const dom = vnode.dom as HTMLElement;
+    if (!this.jump(dom)) {
       // Open at the "New messages" line when there is one above the fold.
-      const divider = vnode.dom.querySelector('.pl-new');
-      if (divider && divider.offsetTop < vnode.dom.scrollHeight - vnode.dom.clientHeight) {
-        vnode.dom.scrollTop = divider.offsetTop - 12;
+      const divider = dom.querySelector<HTMLElement>('.pl-new');
+      if (divider && divider.offsetTop < dom.scrollHeight - dom.clientHeight) {
+        dom.scrollTop = divider.offsetTop - 12;
         this.atBottom = false;
       } else {
-        vnode.dom.scrollTop = vnode.dom.scrollHeight;
+        dom.scrollTop = dom.scrollHeight;
       }
     }
     this.firstId = this.attrs.conv.messages[0]?.id;
   }
 
-  onupdate(vnode) {
+  onupdate(vnode: Mithril.VnodeDOM<MessageListAttrs, this>) {
     super.onupdate(vnode);
-    const el = vnode.dom;
+    const el = vnode.dom as HTMLElement;
     const msgs = this.attrs.conv.messages;
 
     if (this.jump(el)) {
@@ -57,7 +76,7 @@ export default class MessageList extends Component {
   }
 
   /** Scroll to a message asked for — a search result, a pin — and light it up. */
-  jump(el) {
+  jump(el: HTMLElement) {
     const conv = this.attrs.conv;
     if (!conv.jumpTo) return false;
     const target = el.querySelector(`[data-id="${conv.jumpTo}"]`);
@@ -73,21 +92,22 @@ export default class MessageList extends Component {
   view() {
     const conv = this.attrs.conv;
     const msgs = conv.messages;
-    const meId = Number(app.session.user.id());
-    const peer = conv.summary.participants[0] || {};
+    // Only members reach Parley, so someone is signed in.
+    const meId = Number(app.session.user!.id());
+    const peer: Partial<Person> = conv.summary.participants[0] || {};
     const isRoom = conv.summary.type === 'room';
     const many = isRoom || conv.summary.isGroup;
-    const authorOf = (msg) =>
-      msg.author || app.parley.card(msg.userId) || conv.summary.participants.find((p) => p.id === msg.userId) || { displayName: '?' };
-    const lastMine = msgs.map((x) => (x.pending ? null : x.userId)).lastIndexOf(meId);
+    const authorOf = (msg: Message) =>
+      msg.author || app.parley.card(msg.userId) || conv.summary.participants.find((p: Person) => p.id === msg.userId) || { displayName: '?' };
+    const lastMine = msgs.map((x: Message) => (x.pending ? null : x.userId)).lastIndexOf(meId);
     const typers = Object.keys(conv.typing || {}).map(Number);
-    const firstNew = msgs.findIndex((x) => !x.pending && x.userId !== meId && conv.newFrom && x.id > conv.newFrom && x.type !== 'system');
+    const firstNew = msgs.findIndex((x: Message) => !x.pending && x.userId !== meId && conv.newFrom && x.id > conv.newFrom && x.type !== 'system');
 
-    const out = [];
+    const out: Mithril.Children[] = [];
 
     if (conv.loadingOlder) out.push(<div className="pl-day">…</div>);
 
-    msgs.forEach((msg, i) => {
+    msgs.forEach((msg: Message, i: number) => {
       const prev = msgs[i - 1];
       if (!prev || new Date(prev.createdAt).toDateString() !== new Date(msg.createdAt).toDateString()) {
         out.push(
@@ -128,7 +148,7 @@ export default class MessageList extends Component {
       // In a room or a group, the name goes over the first bubble of a run:
       // the face alone does not say who is talking.
       if (many && !mine && (pos === 'first' || pos === 'single')) {
-        out.push(<div className="pl-author">{author.displayName}</div>);
+        out.push(<div className="pl-author">{author!.displayName}</div>);
       }
 
       if (msg.meta && msg.meta.forwarded && !msg.deleted) {
@@ -144,12 +164,12 @@ export default class MessageList extends Component {
           className={`pl-row ${who} ${pos === 'single' ? '' : pos} ${pos === 'first' || pos === 'single' ? 'gap' : ''}${msg.pending ? ' pending' : ''}`}
           data-id={msg.id}
           title={msg.pending ? '' : new Date(msg.createdAt).toLocaleString()}
-          onpointerdown={(e) => this.press(e, msg)}
+          onpointerdown={(e: PointerEvent) => this.press(e, msg)}
           onpointerup={() => clearTimeout(this.pressTimer)}
           onpointercancel={() => clearTimeout(this.pressTimer)}
-          onpointermove={(e) => this.pressMoved(e)}
+          onpointermove={(e: PointerEvent) => this.pressMoved(e)}
         >
-          {!mine ? endsRun ? Avatar(author, 28) : <span className="pl-sp" /> : null}
+          {!mine ? endsRun ? Avatar(author!, 28) : <span className="pl-sp" /> : null}
           <div className="pl-stackcol">
             {this.bubble(msg)}
             {this.chips(msg, meId, who)}
@@ -193,7 +213,7 @@ export default class MessageList extends Component {
     }
 
     typers.forEach((uid) => {
-      const p = conv.summary.participants.find((x) => x.id === uid) || app.parley.card(uid);
+      const p = conv.summary.participants.find((x: Person) => x.id === uid) || app.parley.card(uid);
       if (p)
         out.push(
           <div className="pl-typing" aria-label={extractText(t('typing', { name: p.displayName }))}>
@@ -208,7 +228,7 @@ export default class MessageList extends Component {
     });
 
     return (
-      <div className="pl-w-body" onscroll={(e) => this.scrolled(e)} aria-live="polite">
+      <div className="pl-w-body" onscroll={(e: Event) => this.scrolled(e)} aria-live="polite">
         {out}
       </div>
     );
@@ -219,7 +239,7 @@ export default class MessageList extends Component {
    * messenger: there is no hover, and iOS spends a first tap on hover, so a
    * tray shown on hover would swallow the tap meant for Play or a link.
    */
-  press(e, msg) {
+  press(e: QuietEvent<PointerEvent>, msg: Message) {
     e.redraw = false;
     if (e.pointerType !== 'touch' || msg.deleted || msg.pending) return;
     this.pressAt = [e.clientX, e.clientY];
@@ -229,8 +249,9 @@ export default class MessageList extends Component {
       this.menuFor = null;
       navigator.vibrate?.(10);
       m.redraw();
-      const away = (ev) => {
-        if (ev.target.closest && ev.target.closest('.pl-react-tray')) return;
+      const away = (ev: PointerEvent) => {
+        const target = ev.target as Element;
+        if (target.closest && target.closest('.pl-react-tray')) return;
         this.trayFor = null;
         this.menuFor = null;
         document.removeEventListener('pointerdown', away, true);
@@ -240,14 +261,14 @@ export default class MessageList extends Component {
     }, 450);
   }
 
-  pressMoved(e) {
+  pressMoved(e: QuietEvent<PointerEvent>) {
     e.redraw = false;
     if (!this.pressAt) return;
     if (Math.abs(e.clientX - this.pressAt[0]) + Math.abs(e.clientY - this.pressAt[1]) > 10) clearTimeout(this.pressTimer);
   }
 
-  scrolled(e) {
-    const el = e.target;
+  scrolled(e: QuietEvent<Event>) {
+    const el = e.target as HTMLElement;
     this.atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
     if (el.scrollTop < 60 && this.attrs.conv.hasOlder && !this.attrs.conv.loadingOlder) {
       this.heightBefore = el.scrollHeight;
@@ -257,17 +278,17 @@ export default class MessageList extends Component {
   }
 
   /** Who has read up to your last message: their faces, small, under it. */
-  seen(conv, msg, peer) {
-    const meId = Number(app.session.user.id());
-    const readers = Object.entries(conv.summary.seenBy || {})
+  seen(conv: Conv, msg: Message, peer: Partial<Person>) {
+    const meId = Number(app.session.user!.id());
+    const readers: Person[] = Object.entries<number | null>(conv.summary.seenBy || {})
       .filter(([uid, read]) => Number(uid) !== meId && (read || 0) >= msg.id)
-      .map(([uid]) => conv.summary.participants.find((p) => p.id === Number(uid)) || app.parley.card(uid))
-      .filter(Boolean);
+      .map(([uid]) => conv.summary.participants.find((p: Person) => p.id === Number(uid)) || app.parley.card(uid))
+      .filter((p): p is Person => Boolean(p));
 
     if (conv.summary.type === 'room' || !readers.length) return null;
 
     // In a one-to-one, only once they have read the very last message.
-    if (!conv.summary.isGroup && msg.id !== Math.max(...conv.messages.filter((x) => !x.pending).map((x) => x.id))) return null;
+    if (!conv.summary.isGroup && msg.id !== Math.max(...conv.messages.filter((x: Message) => !x.pending).map((x: Message) => x.id))) return null;
 
     const names = readers.map((p) => p.displayName).join(', ');
     return (
@@ -278,7 +299,7 @@ export default class MessageList extends Component {
     );
   }
 
-  pendingLine(msg) {
+  pendingLine(msg: Message) {
     const s = app.parley;
     if (msg.failed) {
       return (
@@ -298,14 +319,14 @@ export default class MessageList extends Component {
     return <div className="pl-time me">{msg.waiting ? t('waiting_for_connection') : t('sending')}</div>;
   }
 
-  chips(msg, meId, who) {
+  chips(msg: Message, meId: number, who: string) {
     const chips = tally(msg.reactions);
     if (!chips.length) return null;
     return (
       <div className={'pl-chips ' + who}>
         {chips.map(([emoji, n]) => (
           <button
-            className={'pl-chip' + (msg.reactions.some((r) => r.userId === meId && r.emoji === emoji) ? ' mine' : '')}
+            className={'pl-chip' + (msg.reactions.some((r: Reaction) => r.userId === meId && r.emoji === emoji) ? ' mine' : '')}
             onclick={() => app.parley.react(msg.id, emoji)}
             aria-label={extractText(t('reaction_count', { emoji, count: n }))}
           >
@@ -317,7 +338,7 @@ export default class MessageList extends Component {
     );
   }
 
-  bubble(msg) {
+  bubble(msg: Message) {
     if (msg.deleted) return <div className="pl-bub deleted">{t('deleted')}</div>;
 
     const quote = msg.replyTo ? (
@@ -336,7 +357,8 @@ export default class MessageList extends Component {
 
     if (msg.type === 'image') {
       const w = Math.min(240, meta.w || 240);
-      const h = meta.w ? Math.round((w / meta.w) * meta.h) : 160;
+      // The server measures a picture's width and height together.
+      const h = meta.w ? Math.round((w / meta.w) * meta.h!) : 160;
       return (
         <div className="pl-bub pl-media">
           {quote}
@@ -411,14 +433,14 @@ export default class MessageList extends Component {
     );
   }
 
-  tray(msg, mine) {
+  tray(msg: Message, mine: boolean) {
     const s = app.parley;
     const conv = this.attrs.conv;
     const menuOpen = this.menuFor === msg.id;
 
     return (
       <div className={'pl-react-tray' + (menuOpen || this.trayFor === msg.id ? ' open' : '')} role="group" aria-label={extractText(t('react'))}>
-        {(s.config.reactions || []).map((e) => (
+        {(s.config.reactions || []).map((e: string) => (
           <button
             aria-label={e}
             onclick={() => {
@@ -456,7 +478,7 @@ export default class MessageList extends Component {
     );
   }
 
-  menu(msg, mine) {
+  menu(msg: Message, mine: boolean) {
     const s = app.parley;
     const conv = this.attrs.conv;
     const id = conv.summary.id;
@@ -484,6 +506,8 @@ export default class MessageList extends Component {
         {msg.type === 'text' ? (
           <button
             onclick={() => {
+              // A refused clipboard write (no permission, page not focused)
+              // leaves nothing to undo: the menu just closes.
               navigator.clipboard?.writeText(msg.body || '').catch(() => {});
               done();
             }}
@@ -548,12 +572,12 @@ export default class MessageList extends Component {
    * was not picked up is "not answered" to the caller and "Missed call" to the
    * person who was called.
    */
-  callRow(msg) {
+  callRow(msg: Message) {
     const meta = msg.meta || {};
     const video = meta.kind === 'video';
     const d = meta.durationSeconds;
     const length = d ? duration(d) : null;
-    const iCalled = (meta.callerId || msg.userId) === Number(app.session.user.id());
+    const iCalled = (meta.callerId || msg.userId) === Number(app.session.user!.id());
     const answered = meta.outcome === 'completed';
 
     const text = answered
@@ -579,7 +603,7 @@ export default class MessageList extends Component {
     );
   }
 
-  dayLabel(iso) {
+  dayLabel(iso: string) {
     const d = new Date(iso);
     const today = new Date();
     const yesterday = new Date(Date.now() - 86400000);
@@ -598,8 +622,21 @@ export default class MessageList extends Component {
  * A voice note: play, a bar that fills as it plays (click to jump), and the
  * time. The audio is fetched only when play is pressed.
  */
-class VoicePlayer extends Component {
-  oninit(vnode) {
+interface VoicePlayerAttrs extends ComponentAttrs {
+  src: string;
+  /** The note's length, as the server measured it. */
+  seconds?: number | string;
+}
+
+class VoicePlayer extends Component<VoicePlayerAttrs> {
+  /** The one playing, so starting another stops it. */
+  static current?: VoicePlayer;
+
+  playing!: boolean;
+  at!: number;
+  el?: HTMLAudioElement;
+
+  oninit(vnode: Mithril.Vnode<VoicePlayerAttrs, this>) {
     super.oninit(vnode);
     this.playing = false;
     this.at = 0;
@@ -620,7 +657,7 @@ class VoicePlayer extends Component {
           aria-valuemin="0"
           aria-valuemax={String(Math.round(total))}
           aria-valuenow={String(Math.round(this.at))}
-          onclick={(e) => this.seek(e)}
+          onclick={(e: MouseEvent) => this.seek(e)}
         >
           <i style={{ width: (total ? Math.min(100, (this.at / total) * 100) : 0) + '%' }} />
         </span>
@@ -631,12 +668,13 @@ class VoicePlayer extends Component {
 
   audio() {
     if (!this.el) {
-      this.el = new Audio(this.attrs.src);
-      this.el.addEventListener('timeupdate', () => {
-        this.at = this.el.currentTime;
+      const el = new Audio(this.attrs.src);
+      this.el = el;
+      el.addEventListener('timeupdate', () => {
+        this.at = el.currentTime;
         m.redraw();
       });
-      this.el.addEventListener('ended', () => {
+      el.addEventListener('ended', () => {
         this.playing = false;
         this.at = 0;
         m.redraw();
@@ -665,15 +703,15 @@ class VoicePlayer extends Component {
     m.redraw();
   }
 
-  seek(e) {
+  seek(e: MouseEvent) {
     const total = Number(this.attrs.seconds) || 0;
-    const r = e.currentTarget.getBoundingClientRect();
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const a = this.audio();
     a.currentTime = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * total;
     this.at = a.currentTime;
   }
 
-  onremove(vnode) {
+  onremove(vnode: Mithril.VnodeDOM<VoicePlayerAttrs, this>) {
     super.onremove(vnode);
     if (this.el) this.el.pause();
   }

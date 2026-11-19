@@ -34,6 +34,15 @@ class ImportRamonTest extends ConsoleTestCase
             $this->database()->getSchemaBuilder()->dropIfExists($table);
         }
 
+        // ...so what the import wrote was committed too: take it away, or
+        // the next run's fixtures collide with it.
+        if ($this->database()->getDriverName() === 'mysql') {
+            foreach (['parley_reactions', 'parley_pins', 'parley_messages', 'parley_participants', 'parley_conversations'] as $table) {
+                $this->database()->table($table)->delete();
+            }
+            $this->database()->table('settings')->where('key', 'ernestdefoe-parley.ramon_imported')->delete();
+        }
+
         parent::tearDown();
     }
 
@@ -107,10 +116,13 @@ class ImportRamonTest extends ConsoleTestCase
         $this->sourceTables();
         $db = $this->database();
 
+        // Counted, not assumed empty: MySQL commits the test's transaction at
+        // CREATE TABLE, so rows from earlier tests can still be there.
+        $before = $db->table('parley_messages')->count();
         $dry = $this->runCommand(['command' => 'parley:import-ramon', '--dry-run' => true]);
         $this->assertStringContainsString('Would import 1 conversation(s), 2 message(s).', $dry);
         $this->assertStringContainsString('Would import 1 room(s) from tag channels, 1 message(s).', $dry);
-        $this->assertSame(0, $db->table('parley_messages')->count(), 'A dry run changes nothing');
+        $this->assertSame($before, $db->table('parley_messages')->count(), 'A dry run changes nothing');
 
         $this->runCommand(['command' => 'parley:import-ramon']);
 

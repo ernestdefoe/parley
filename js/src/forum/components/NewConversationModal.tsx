@@ -1,11 +1,13 @@
 import app from 'flarum/forum/app';
-import FormModal from 'flarum/common/components/FormModal';
+import FormModal, { type IFormModalAttrs } from 'flarum/common/components/FormModal';
+import type Mithril from 'mithril';
 import Button from 'flarum/common/components/Button';
 import extractText from 'flarum/common/utils/extractText';
 import Avatar from './Avatar';
 import api from '../api';
+import type { Person } from '../types';
 
-const t = (key, params) => app.translator.trans('ernestdefoe-parley.forum.new.' + key, params);
+const t = (key: string, params: Record<string, unknown> = {}) => app.translator.trans('ernestdefoe-parley.forum.new.' + key, params);
 
 /**
  * Start a conversation: pick one person for a direct message, or two or more
@@ -14,8 +16,25 @@ const t = (key, params) => app.translator.trans('ernestdefoe-parley.forum.new.' 
  *
  * Loaded when it is first opened.
  */
-export default class NewConversationModal extends FormModal {
-  oninit(vnode) {
+export interface NewConversationModalAttrs extends IFormModalAttrs {
+  /** The group to add people to, instead of starting a conversation. */
+  conversationId?: number;
+  /** Who is in that group already. */
+  members?: Person[];
+}
+
+export default class NewConversationModal extends FormModal<NewConversationModalAttrs> {
+  chosen!: Person[];
+  query!: string;
+  found!: Person[];
+  name!: string;
+  photo!: File | null;
+  adding!: boolean;
+  already!: Set<number>;
+  searching?: boolean;
+  timer?: ReturnType<typeof setTimeout>;
+
+  oninit(vnode: Mithril.Vnode<NewConversationModalAttrs, this>) {
     super.oninit(vnode);
     this.chosen = [];
     this.query = '';
@@ -23,7 +42,7 @@ export default class NewConversationModal extends FormModal {
     this.name = '';
     this.photo = null;
     this.adding = !!this.attrs.conversationId;
-    this.already = new Set((this.attrs.members || []).map((p) => p.id));
+    this.already = new Set((this.attrs.members || []).map((p: Person) => p.id));
   }
 
   className() {
@@ -43,7 +62,7 @@ export default class NewConversationModal extends FormModal {
         <div className="Form-group">
           <label htmlFor="Parley-new-to">{t('to')}</label>
           <div className="pl-chips-input FormControl" onclick={() => document.getElementById('Parley-new-to')?.focus()}>
-            {this.chosen.map((p) => (
+            {this.chosen.map((p: Person) => (
               <span className="pl-person-chip">
                 {Avatar(p, 20)} {p.displayName}
                 <button type="button" aria-label={extractText(t('remove', { name: p.displayName }))} onclick={() => this.unpick(p)}>
@@ -57,8 +76,8 @@ export default class NewConversationModal extends FormModal {
               placeholder={this.chosen.length ? '' : extractText(t('search'))}
               value={this.query}
               disabled={this.chosen.length >= max}
-              oninput={(e) => this.search(e.target.value)}
-              onkeydown={(e) => {
+              oninput={(e: InputEvent) => this.search((e.target as HTMLInputElement).value)}
+              onkeydown={(e: KeyboardEvent) => {
                 if (e.key === 'Backspace' && !this.query && this.chosen.length) this.unpick(this.chosen[this.chosen.length - 1]);
                 if (e.key === 'Enter') {
                   e.preventDefault();
@@ -69,7 +88,7 @@ export default class NewConversationModal extends FormModal {
           </div>
           {this.found.length ? (
             <ul className="pl-pick-list" role="listbox">
-              {this.found.map((p) => (
+              {this.found.map((p: Person) => (
                 <li>
                   <button type="button" role="option" onclick={() => this.pick(p)}>
                     {Avatar(p, 28, { dot: true, status: p.online ? 'online' : 'offline' })}
@@ -94,14 +113,18 @@ export default class NewConversationModal extends FormModal {
               maxlength="80"
               placeholder={extractText(t('group_name_placeholder'))}
               value={this.name}
-              oninput={(e) => (this.name = e.target.value)}
+              oninput={(e: InputEvent) => (this.name = (e.target as HTMLInputElement).value)}
             />
           </div>
         ) : null}
         {group ? (
           <div className="Form-group">
             <label>{t('group_photo')}</label>
-            <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onchange={(e) => (this.photo = e.target.files[0] || null)} />
+            <input
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/gif"
+              onchange={(e: Event) => (this.photo = (e.target as HTMLInputElement).files![0] || null)}
+            />
           </div>
         ) : null}
 
@@ -116,7 +139,7 @@ export default class NewConversationModal extends FormModal {
     );
   }
 
-  search(q) {
+  search(q: string) {
     this.query = q;
     clearTimeout(this.timer);
     if (q.trim().length < 2) {
@@ -127,29 +150,29 @@ export default class NewConversationModal extends FormModal {
     this.timer = setTimeout(() => {
       api.people(q.trim()).then((r) => {
         if (this.query !== q) return;
-        const taken = new Set([...this.chosen.map((p) => p.id), ...this.already]);
-        this.found = (r.people || []).filter((p) => !taken.has(p.id));
+        const taken = new Set([...this.chosen.map((p: Person) => p.id), ...this.already]);
+        this.found = (r.people || []).filter((p: Person) => !taken.has(p.id));
         this.searching = false;
         m.redraw();
       });
     }, 220);
   }
 
-  pick(p) {
+  pick(p: Person) {
     this.chosen.push(p);
     this.query = '';
     this.found = [];
     setTimeout(() => document.getElementById('Parley-new-to')?.focus(), 0);
   }
 
-  unpick(p) {
-    this.chosen = this.chosen.filter((x) => x.id !== p.id);
+  unpick(p: Person) {
+    this.chosen = this.chosen.filter((x: Person) => x.id !== p.id);
   }
 
-  onsubmit(e) {
+  onsubmit(e: SubmitEvent) {
     e.preventDefault();
     const s = app.parley;
-    const ids = this.chosen.map((p) => p.id);
+    const ids = this.chosen.map((p: Person) => p.id);
     this.loading = true;
     const fail = () => {
       this.loading = false;
@@ -157,7 +180,7 @@ export default class NewConversationModal extends FormModal {
     };
 
     if (this.adding) {
-      api.addMembers(this.attrs.conversationId, ids).then((r) => {
+      api.addMembers(this.attrs.conversationId!, ids).then((r) => {
         s.groupChanged(r);
         this.hide();
       }, fail);

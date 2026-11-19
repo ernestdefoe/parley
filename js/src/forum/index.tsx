@@ -3,9 +3,13 @@ import { extend } from 'flarum/common/extend';
 import Page from 'flarum/common/components/Page';
 import Button from 'flarum/common/components/Button';
 import UserControls from 'flarum/forum/utils/UserControls';
+import type ItemList from 'flarum/common/utils/ItemList';
+import type User from 'flarum/common/models/User';
+import type Mithril from 'mithril';
 import ParleyState from './state';
 import Parley from './components/Parley';
 import api from './api';
+import type { ParleyConfig } from './types';
 
 export { default as extend } from './extend';
 export { default as ParleyState } from './state';
@@ -14,7 +18,15 @@ export { default as PersonRow } from './components/PersonRow';
 export { default as Avatar } from './components/Avatar';
 export { default as Icons } from './icons';
 
-const t = (key, params) => app.translator.trans('ernestdefoe-parley.forum.' + key, params);
+const t = (key: string, params: Record<string, unknown> = {}) => app.translator.trans('ernestdefoe-parley.forum.' + key, params);
+
+/*
+ * Core's typings give userControls no arguments; it is called with the user
+ * and the menu's component like the other control lists.
+ */
+const Controls = UserControls as unknown as {
+  userControls(user: User, context: unknown): ItemList<Mithril.Children>;
+};
 
 app.initializers.add('ernestdefoe-parley', () => {
   /*
@@ -27,7 +39,7 @@ app.initializers.add('ernestdefoe-parley', () => {
    * `.prototype` of that takes the whole initializer down.
    */
   extend(app, 'mount', function () {
-    const config = app.forum.attribute('parley') || {};
+    const config = app.forum.attribute<ParleyConfig | null>('parley') || {};
 
     if (!app.session.user) {
       guestHeartbeat();
@@ -51,13 +63,13 @@ app.initializers.add('ernestdefoe-parley', () => {
     app.parley?.moved();
   });
 
-  extend(UserControls, 'userControls', function (items, user) {
+  extend(Controls, 'userControls', function (items, user) {
     const s = app.parley;
     if (!s || !app.session.user || user === app.session.user) return;
 
     items.add(
       'parleyMessage',
-      <Button icon="fas fa-comment" onclick={() => s.openWith(user.id())}>
+      <Button icon="fas fa-comment" onclick={() => s.openWith(user.id()!)}>
         {t('controls.message')}
       </Button>,
       100
@@ -66,7 +78,7 @@ app.initializers.add('ernestdefoe-parley', () => {
     const following = s.online.some((p) => p.id === Number(user.id()) && p.following) || s.followingOffline.some((p) => p.id === Number(user.id()));
     items.add(
       'parleyFollow',
-      <Button icon={following ? 'fas fa-user-minus' : 'fas fa-user-plus'} onclick={() => s.follow(user.id(), !following)}>
+      <Button icon={following ? 'fas fa-user-minus' : 'fas fa-user-plus'} onclick={() => s.follow(user.id()!, !following)}>
         {following ? t('controls.unfollow') : t('controls.follow')}
       </Button>,
       90
@@ -81,7 +93,9 @@ app.initializers.add('ernestdefoe-parley', () => {
       'parleyBlock',
       <Button
         icon="fas fa-ban"
-        onclick={() => s.block(user.id(), true).then(() => app.alerts.show({ type: 'success' }, t('controls.blocked', { name: user.displayName() })))}
+        onclick={() =>
+          s.block(user.id()!, true).then(() => app.alerts.show({ type: 'success' }, t('controls.blocked', { name: user.displayName() })))
+        }
       >
         {t('controls.block')}
       </Button>
@@ -92,7 +106,8 @@ app.initializers.add('ernestdefoe-parley', () => {
   // path: the settings page is code-split in Flarum 2.
   extend('flarum/forum/components/SettingsPage', 'privacyItems', function (items) {
     if (!app.parley) return;
-    const user = app.session.user;
+    // Parley only starts for a signed-in member.
+    const user = app.session.user!;
     const current = user.preferences()?.parleyWhoCanMessage || 'everyone';
 
     items.add(
@@ -103,7 +118,7 @@ app.initializers.add('ernestdefoe-parley', () => {
           id="Parley-who-can-message"
           className="FormControl"
           value={current}
-          onchange={(e) => user.savePreferences({ parleyWhoCanMessage: e.target.value })}
+          onchange={(e: Event) => user.savePreferences({ parleyWhoCanMessage: (e.target as HTMLSelectElement).value })}
         >
           <option value="everyone">{t('settings.everyone')}</option>
           <option value="everyone_inbox">{t('settings.everyone_inbox')}</option>

@@ -1,79 +1,118 @@
 import app from 'flarum/forum/app';
+import type { FlarumRequestOptions } from 'flarum/common/Application';
+import type {
+  ConversationListResponse,
+  ConversationResponse,
+  DetailsResponse,
+  GroupResponse,
+  HeartbeatResponse,
+  MessageResponse,
+  MessagesResponse,
+  OkResponse,
+  PeopleResponse,
+  PersonActionResponse,
+  ReportsResponse,
+  RoomsResponse,
+  SearchResponse,
+} from './types';
+
+type Id = number | string;
+type Extra<T> = Partial<FlarumRequestOptions<T>>;
+type Params = Record<string, string | number | boolean | null | undefined>;
 
 /** Every Parley call, in one place, so the URLs live in one file. */
-const url = (path) => app.forum.attribute('apiUrl') + '/parley' + path;
+const url = (path: string): string => app.forum.attribute('apiUrl') + '/parley' + path;
 
-const call = (method, path, body, extra = {}) => app.request({ method, url: url(path), body, ...extra });
+const call = <T>(method: string, path: string, body?: unknown, extra: Extra<T> = {}): Promise<T> =>
+  app.request<T>({ method, url: url(path), body, ...extra });
 
 /** A request whose failure the caller handles itself: no alert. */
 const quietly = { errorHandler: () => {} };
 
-const form = (fields) => {
+const form = (fields: Record<string, string | Blob | null | undefined>): FormData => {
   const data = new FormData();
   Object.entries(fields).forEach(([k, v]) => v !== undefined && v !== null && data.append(k, v));
   return data;
 };
 
-const qs = (params) => {
-  const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== '')).toString();
+const qs = (params: Params): string => {
+  const q = new URLSearchParams(
+    Object.entries(params)
+      .filter(([, v]) => v !== undefined && v !== null && v !== '')
+      .map(([k, v]): [string, string] => [k, String(v)])
+  ).toString();
   return q ? '?' + q : '';
 };
 
 export default {
-  rooms: (parent) => call('GET', '/rooms' + (parent ? `?parent=${parent}` : ''), undefined, { background: true, errorHandler: () => {} }),
-  joinRoom: (id) => call('POST', `/rooms/${id}/join`),
-  leaveRoom: (id) => call('POST', `/rooms/${id}/leave`),
+  rooms: (parent?: Id | null) =>
+    call<RoomsResponse>('GET', '/rooms' + (parent ? `?parent=${parent}` : ''), undefined, { background: true, errorHandler: () => {} }),
+  joinRoom: (id: Id) => call<RoomsResponse>('POST', `/rooms/${id}/join`),
+  leaveRoom: (id: Id) => call<RoomsResponse>('POST', `/rooms/${id}/leave`),
   /** A page closing says goodbye; a beacon outlives the page. */
   leave() {
     const data = new FormData();
     data.append('csrfToken', app.session.csrfToken);
     navigator.sendBeacon?.(url('/leave'), data);
   },
-  heartbeat: (body) => call('POST', '/heartbeat', body, { background: true, errorHandler: () => {} }),
-  conversations: (filter = 'all', offset = 0) => call('GET', '/conversations' + qs({ filter, offset: offset || null })),
-  open: (userId) => call('POST', '/conversations', { userId }),
-  show: (id, params = {}) => {
+  heartbeat: (body: object) => call<HeartbeatResponse>('POST', '/heartbeat', body, { background: true, errorHandler: () => {} }),
+  conversations: (filter = 'all', offset = 0) => call<ConversationListResponse>('GET', '/conversations' + qs({ filter, offset: offset || null })),
+  open: (userId: Id) => call<ConversationResponse>('POST', '/conversations', { userId }),
+  show: (id: Id, params: Params = {}) => {
     // A poll is quiet: no loading bar, no error alert if one misses.
     const quiet = params.after || params.latest;
-    return call('GET', `/conversations/${id}` + qs(params), undefined, quiet ? { background: true, errorHandler: () => {} } : {});
+    return call<ConversationResponse>(
+      'GET',
+      `/conversations/${id}` + qs(params),
+      undefined,
+      quiet ? { background: true, errorHandler: () => {} } : {}
+    );
   },
   /** Sent through the queue, which retries a dropped connection itself. */
-  send: (id, body, replyToId, nonce) => call('POST', `/conversations/${id}/messages`, { body, replyToId, nonce }, quietly),
-  upload: (id, file, kind, extra = {}, onprogress) =>
-    app.request({
+  send: (id: Id, body: string, replyToId: number | null, nonce: string) =>
+    call<MessageResponse>('POST', `/conversations/${id}/messages`, { body, replyToId, nonce }, quietly),
+  upload: (id: Id, file: Blob, kind: string, extra: Record<string, string | Blob | null | undefined> = {}, onprogress?: (fraction: number) => void) =>
+    app.request<MessageResponse>({
       method: 'POST',
       url: url(`/conversations/${id}/files`),
       body: form({ file, kind, ...extra }),
-      serialize: (raw) => raw,
-      config: (xhr) => {
+      serialize: (raw: FormData) => raw,
+      config: (xhr: XMLHttpRequest) => {
         if (onprogress && xhr.upload) xhr.upload.onprogress = (e) => e.lengthComputable && onprogress(e.loaded / e.total);
       },
       ...quietly,
     }),
-  action: (id, action, body = {}) => call('POST', `/conversations/${id}/${action}`, body, { background: true, errorHandler: () => {} }),
-  settings: (id, changes) => call('POST', `/conversations/${id}/settings`, changes),
-  accept: (id) => call('POST', `/conversations/${id}/accept`),
-  details: (id, tab, before) => call('GET', `/conversations/${id}/details` + qs({ tab, before }), undefined, { background: true }),
-  createGroup: (userIds, name) => call('POST', '/groups', { userIds, name }),
-  renameGroup: (id, name) => call('PATCH', `/conversations/${id}`, { name }),
-  groupPhoto: (id, file) =>
+  action: (id: Id, action: string, body: object = {}) =>
+    call<OkResponse>('POST', `/conversations/${id}/${action}`, body, { background: true, errorHandler: () => {} }),
+  settings: (id: Id, changes: object) => call<OkResponse>('POST', `/conversations/${id}/settings`, changes),
+  accept: (id: Id) => call<OkResponse>('POST', `/conversations/${id}/accept`),
+  details: (id: Id, tab?: string, before?: Id | null) =>
+    call<DetailsResponse>('GET', `/conversations/${id}/details` + qs({ tab, before }), undefined, { background: true }),
+  createGroup: (userIds: Id[], name?: string | null) => call<ConversationResponse>('POST', '/groups', { userIds, name }),
+  renameGroup: (id: Id, name: string | null) => call<GroupResponse>('PATCH', `/conversations/${id}`, { name }),
+  groupPhoto: (id: Id, file: Blob | null) =>
     file
-      ? app.request({ method: 'POST', url: url(`/conversations/${id}/photo`), body: form({ photo: file }), serialize: (raw) => raw })
-      : call('DELETE', `/conversations/${id}/photo`),
-  addMembers: (id, userIds) => call('POST', `/conversations/${id}/members`, { userIds }),
-  removeMember: (id, userId) => call('DELETE', `/conversations/${id}/members/${userId}`),
-  edit: (messageId, body) => call('PATCH', `/messages/${messageId}`, { body }),
-  remove: (messageId) => call('DELETE', `/messages/${messageId}`),
-  react: (messageId, emoji) => call('POST', `/messages/${messageId}/react`, { emoji }),
-  pin: (messageId, on) => call('POST', `/messages/${messageId}/pin`, { on }),
-  forward: (messageId, conversationIds) => call('POST', `/messages/${messageId}/forward`, { conversationIds }),
-  report: (messageId, reason) => call('POST', `/messages/${messageId}/report`, { reason }),
-  search: (params) => call('GET', '/search' + qs(params), undefined, { background: true }),
-  people: (q) => call('GET', '/people?q=' + encodeURIComponent(q), undefined, { background: true }),
-  person: (userId, action, on) => call('POST', `/people/${userId}/${action}`, { on }),
-  reports: () => call('GET', '/reports'),
-  resolve: (id) => call('POST', `/reports/${id}/resolve`),
-  fileUrl: (messageId) => url(`/files/${messageId}`),
+      ? app.request<GroupResponse>({
+          method: 'POST',
+          url: url(`/conversations/${id}/photo`),
+          body: form({ photo: file }),
+          serialize: (raw: FormData) => raw,
+        })
+      : call<GroupResponse>('DELETE', `/conversations/${id}/photo`),
+  addMembers: (id: Id, userIds: Id[]) => call<GroupResponse>('POST', `/conversations/${id}/members`, { userIds }),
+  removeMember: (id: Id, userId: Id) => call<GroupResponse>('DELETE', `/conversations/${id}/members/${userId}`),
+  edit: (messageId: Id, body: string) => call<MessageResponse>('PATCH', `/messages/${messageId}`, { body }),
+  remove: (messageId: Id) => call<MessageResponse>('DELETE', `/messages/${messageId}`),
+  react: (messageId: Id, emoji: string) => call<MessageResponse>('POST', `/messages/${messageId}/react`, { emoji }),
+  pin: (messageId: Id, on: boolean) => call<MessageResponse>('POST', `/messages/${messageId}/pin`, { on }),
+  forward: (messageId: Id, conversationIds: Id[]) => call<MessagesResponse>('POST', `/messages/${messageId}/forward`, { conversationIds }),
+  report: (messageId: Id, reason: string | null) => call<OkResponse>('POST', `/messages/${messageId}/report`, { reason }),
+  search: (params: Params) => call<SearchResponse>('GET', '/search' + qs(params), undefined, { background: true }),
+  people: (q: string) => call<PeopleResponse>('GET', '/people?q=' + encodeURIComponent(q), undefined, { background: true }),
+  person: (userId: Id, action: string, on: boolean) => call<PersonActionResponse>('POST', `/people/${userId}/${action}`, { on }),
+  reports: () => call<ReportsResponse>('GET', '/reports'),
+  resolve: (id: Id) => call<ReportsResponse>('POST', `/reports/${id}/resolve`),
+  fileUrl: (messageId: Id) => url(`/files/${messageId}`),
   /** Kept for anything that still asks for a picture by its old address. */
-  imageUrl: (messageId) => url(`/files/${messageId}`),
+  imageUrl: (messageId: Id) => url(`/files/${messageId}`),
 };

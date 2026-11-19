@@ -1,5 +1,6 @@
 import app from 'flarum/forum/app';
 import Component from 'flarum/common/Component';
+import type Mithril from 'mithril';
 import extractText from 'flarum/common/utils/extractText';
 import Avatar from './Avatar';
 import PersonRow from './PersonRow';
@@ -8,8 +9,9 @@ import StatusMenu, { statusColor } from './StatusMenu';
 import { activityLine, ownActivity } from './activity';
 import Icons from '../icons';
 import { DOCK_BREAKPOINT } from '../state';
+import type { OnlinePerson, Person, Room } from '../types';
 
-const t = (key, params) => app.translator.trans('ernestdefoe-parley.forum.' + key, params);
+const t = (key: string, params: Record<string, unknown> = {}) => app.translator.trans('ernestdefoe-parley.forum.' + key, params);
 
 /**
  * The social panel down the right of the page: you and your status, a search,
@@ -21,10 +23,10 @@ export default class Rail extends Component {
     const me = s.me;
     const status = s.chosenStatus === 'online' && s.idle ? 'away' : s.chosenStatus;
     const f = s.filter.trim().toLowerCase();
-    const match = (p) =>
+    const match = (p: Person) =>
       !f || p.displayName.toLowerCase().includes(f) || p.username.toLowerCase().includes(f) || (p.activity?.label || '').toLowerCase().includes(f);
-    const order = { online: 0, busy: 1, away: 2, offline: 3 };
-    const sort = (list) => [...list].sort((a, b) => order[a.status] - order[b.status] || a.displayName.localeCompare(b.displayName));
+    const order: Record<string, number> = { online: 0, busy: 1, away: 2, offline: 3 };
+    const sort = (list: OnlinePerson[]) => [...list].sort((a, b) => order[a.status] - order[b.status] || a.displayName.localeCompare(b.displayName));
 
     const following = sort([...s.online.filter((p) => p.following), ...s.followingOffline].filter(match));
     const rest = sort(s.online.filter((p) => !p.following && match(p)));
@@ -80,7 +82,7 @@ export default class Rail extends Component {
             placeholder={extractText(t('rail.search'))}
             value={s.filter}
             autocomplete="off"
-            oninput={(e) => s.search(e.target.value)}
+            oninput={(e: Event) => s.search((e.target as HTMLInputElement).value)}
           />
         </label>
 
@@ -132,9 +134,9 @@ export default class Rail extends Component {
   }
 
   /** Rooms first: they are where the forum talks together. */
-  rooms(f) {
+  rooms(f: string) {
     const s = app.parley;
-    const match = (r) => !f || r.name.toLowerCase().includes(f) || (r.description || '').toLowerCase().includes(f);
+    const match = (r: Room) => !f || r.name.toLowerCase().includes(f) || (r.description || '').toLowerCase().includes(f);
     const top = s.rooms.filter((r) => !r.parentId);
     // A search reaches into opened conferences too.
     const rooms = top.filter((r) => match(r) || (s.childRooms[r.id] || []).some(match));
@@ -157,12 +159,14 @@ export default class Rail extends Component {
     ];
   }
 
-  section(key, title, count, people, empty) {
+  section(key: string, title: Mithril.Children, count: string, people: Person[], empty: Mithril.Children) {
     const s = app.parley;
-    const open = s.sections[key] !== false;
+    // 'others' is not one of the state's own sections: it is added on first toggle.
+    const sections = s.sections as Record<string, boolean>;
+    const open = sections[key] !== false;
 
     return [
-      <button className="pl-sec-h" aria-expanded={String(open)} onclick={() => (s.sections[key] = !open)}>
+      <button className="pl-sec-h" aria-expanded={String(open)} onclick={() => (sections[key] = !open)}>
         {Icons.chev()} {title} <span className="pl-c">{count}</span>
       </button>,
       open ? (
@@ -175,7 +179,7 @@ export default class Rail extends Component {
     ];
   }
 
-  unreadWith(userId) {
+  unreadWith(userId: number) {
     const s = app.parley;
     for (const c of s.convs.values()) {
       if (!c.summary.isGroup && c.summary.participants.some((p) => p.id === userId)) return s.unread[c.summary.id] || 0;

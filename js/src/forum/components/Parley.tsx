@@ -1,52 +1,69 @@
 import app from 'flarum/forum/app';
 import Component from 'flarum/common/Component';
+import type Mithril from 'mithril';
 import extractText from 'flarum/common/utils/extractText';
 import Rail from './Rail';
 import Heads from './Heads';
 import ChatWindow from './ChatWindow';
 import { DOCK_BREAKPOINT } from '../state';
 
-const t = (key, params) => app.translator.trans('ernestdefoe-parley.forum.' + key, params);
+const t = (key: string, params: Record<string, unknown> = {}) => app.translator.trans('ernestdefoe-parley.forum.' + key, params);
 
 /**
  * Everything Parley draws over the forum: the rail, the heads, the dock, and
  * the "N online" pill that brings the rail back when it is hidden or the
  * screen is too narrow to dock it.
  */
+type Keyboard = (() => void) & { again?: (() => void) | null };
+
 export default class Parley extends Component {
-  oncreate(vnode) {
+  /** Small fixed buttons faded out because they sit over an open window. */
+  covered!: Set<Element>;
+  /** Bars along the bottom edge that step aside while typing on a phone. */
+  bars!: Set<Element>;
+  fullHeight!: number;
+  typing?: boolean | null;
+  settle?: ReturnType<typeof setTimeout>;
+  measure!: () => void;
+  away!: (e: PointerEvent) => void;
+  escape!: (e: KeyboardEvent) => void;
+  keyboard!: Keyboard;
+  focusIn!: () => void;
+  focusOut!: () => void;
+
+  oncreate(vnode: Mithril.VnodeDOM<this['attrs'], this>) {
     super.oncreate(vnode);
     this.covered = new Set();
     this.sync();
 
     // Re-measured when the page scrolls or resizes, which is when a theme's
     // back-to-top button comes and goes.
-    let pending = null;
+    let pending: ReturnType<typeof setTimeout> | null = null;
     this.measure = () => {
       if (pending) return;
       pending = setTimeout(() => {
         pending = null;
-        this.clearHeader(vnode.dom);
-        this.clearCorner(vnode.dom);
+        this.clearHeader(vnode.dom as HTMLElement);
+        this.clearCorner(vnode.dom as HTMLElement);
         // A theme fades its button in and out. Look again once the fade is
         // over, so a half-faded button neither keeps nor misses the lift.
         clearTimeout(this.settle);
-        this.settle = setTimeout(() => this.clearCorner(vnode.dom), 600);
+        this.settle = setTimeout(() => this.clearCorner(vnode.dom as HTMLElement), 600);
       }, 250);
     };
     window.addEventListener('scroll', this.measure, { passive: true });
     window.addEventListener('resize', this.measure);
 
     // The floating list closes on a click anywhere else, or Escape.
-    this.away = (e) => {
+    this.away = (e: PointerEvent) => {
       const s = app.parley;
       if (!s.railSheet || s.railDocked()) return;
-      const t = e.target;
+      const t = e.target as Element;
       if (t.closest && (t.closest('.pl-rail') || t.closest('.pl-peek') || t.closest('.Modal') || t.closest('.Dropdown-menu'))) return;
       s.railSheet = false;
       m.redraw();
     };
-    this.escape = (e) => {
+    this.escape = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && app.parley.railSheet && !app.parley.railDocked()) {
         app.parley.railSheet = false;
         m.redraw();
@@ -65,8 +82,8 @@ export default class Parley extends Component {
      */
     this.bars = new Set();
     this.fullHeight = window.innerHeight;
-    const field = (el) => el && el.closest && el.closest('.Parley') && /^(TEXTAREA|INPUT)$/.test(el.tagName);
-    let settle = null;
+    const field = (el: Element | null) => el && el.closest && el.closest('.Parley') && /^(TEXTAREA|INPUT)$/.test(el.tagName);
+    let settle: ReturnType<typeof setTimeout> | undefined;
     this.keyboard = () => {
       const vv = window.visualViewport;
       const focused = app.parley.isMobile() && field(document.activeElement);
@@ -74,7 +91,7 @@ export default class Parley extends Component {
       // The keyboard is up when the visible part of the screen is well short
       // of its full height; a field can keep focus after it is put away.
       const open = focused && vv && vv.height < this.fullHeight - 120;
-      const hidden = open ? Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop)) : 0;
+      const hidden = open && vv ? Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop)) : 0;
       if (open !== !!this.typing) {
         this.typing = open;
         this.bars.forEach((el) => (open ? el.setAttribute('data-parley-covered', '') : el.removeAttribute('data-parley-covered')));
@@ -103,7 +120,7 @@ export default class Parley extends Component {
     this.measure();
   }
 
-  onremove(vnode) {
+  onremove(vnode: Mithril.VnodeDOM<this['attrs'], this>) {
     super.onremove(vnode);
     this.covered.forEach((el) => el.removeAttribute('data-parley-covered'));
     window.removeEventListener('scroll', this.measure);
@@ -131,11 +148,11 @@ export default class Parley extends Component {
    * - Small buttons over an open window: the window wins. They are faded
    *   out while it is open and come back as soon as it closes or moves.
    */
-  clearCorner(root) {
+  clearCorner(root: HTMLElement) {
     const vw = window.innerWidth;
     const vh = window.innerHeight;
-    const foreign = (el) => el && !root.contains(el) && el !== document.body && el !== document.documentElement;
-    const fixedRect = (el) => {
+    const foreign = (el: Element) => el && !root.contains(el) && el !== document.body && el !== document.documentElement;
+    const fixedRect = (el: Element) => {
       const style = getComputedStyle(el);
       // A hidden button is usually faded out, and opacity is animated, so
       // mid-fade it reads as half there. `pointer-events: none` is how
@@ -144,12 +161,12 @@ export default class Parley extends Component {
       const r = el.getBoundingClientRect();
       return r.width && r.height ? r : null;
     };
-    const isBar = (r) => r.width >= vw * 0.9 && r.bottom >= vh - 2 && r.height <= 100;
+    const isBar = (r: DOMRect) => r.width >= vw * 0.9 && r.bottom >= vh - 2 && r.height <= 100;
 
     // Bars along the bottom edge, sampled across it.
     // While typing on a phone the bars are stepped aside: leave them be.
     let bar = 0;
-    const bars = new Set();
+    const bars = new Set<Element>();
     for (const x of this.typing ? [] : [vw * 0.1, vw * 0.5, vw * 0.9]) {
       for (const el of document.elementsFromPoint(x, vh - 4)) {
         if (!foreign(el)) continue;
@@ -181,11 +198,11 @@ export default class Parley extends Component {
 
     // Small buttons over an open window: hidden while it is open.
     // Mini windows, and the conversation on the messages page.
-    const wins = [...document.querySelectorAll('.pl-dock .pl-win:not(.min), .pl-win.page')]
+    const wins = Array.from(document.querySelectorAll('.pl-dock .pl-win:not(.min), .pl-win.page'))
       .map((w) => w.getBoundingClientRect())
       .filter((r) => r.width);
-    const overlaps = (r) => wins.some((w) => r.left < w.right && r.right > w.left && r.top < w.bottom && r.bottom > w.top);
-    const now = new Set();
+    const overlaps = (r: DOMRect) => wins.some((w) => r.left < w.right && r.right > w.left && r.top < w.bottom && r.bottom > w.top);
+    const now = new Set<Element>();
     for (const w of wins) {
       for (const [x, y] of [
         [w.right - 30, w.bottom - 30],
@@ -217,12 +234,12 @@ export default class Parley extends Component {
    * of every height (Masthead's is two bars tall), and one that scrolls away
    * leaves the top of the screen free again.
    */
-  clearHeader(root) {
+  clearHeader(root: HTMLElement) {
     // On a phone #header is the drawer, off the side of the screen, and the
     // bar across the top is #app-navigation.
     const bars = ['header', 'app-navigation']
       .map((id) => document.getElementById(id))
-      .filter(Boolean)
+      .filter((el): el is HTMLElement => Boolean(el))
       .map((el) => el.getBoundingClientRect())
       .filter((r) => r.height && r.left >= 0 && r.left < window.innerWidth);
     const bottom = bars.length ? Math.max(0, Math.round(Math.max(...bars.map((r) => r.bottom)))) : null;
@@ -233,7 +250,7 @@ export default class Parley extends Component {
     }
   }
 
-  onupdate(vnode) {
+  onupdate(vnode: Mithril.VnodeDOM<this['attrs'], this>) {
     super.onupdate(vnode);
     this.sync();
     // A window opened, closed or moved: look again at what it covers.

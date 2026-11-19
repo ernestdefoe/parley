@@ -1,6 +1,74 @@
 import app from 'flarum/forum/app';
+import type User from 'flarum/common/models/User';
+import type Model from 'flarum/common/Model';
+import type RequestError from 'flarum/common/utils/RequestError';
 import api from './api';
 import { placeFromPath, windowsThatFit } from './util';
+import type {
+  Activity,
+  ConvEntry,
+  ConversationSummary,
+  GroupResponse,
+  Message,
+  OnlinePerson,
+  ParleyConfig,
+  Person,
+  Place,
+  QueueItem,
+  Room,
+  Translation,
+} from './types';
+
+/** A realtime channel: the bits of a Pusher channel Parley binds on. */
+export interface ParleyChannel {
+  bind(event: string, callback: (data: any) => void): unknown;
+}
+
+/** flarum/realtime's RealtimeState, as far as Parley uses it. */
+interface RealtimeState {
+  onUserChannelReady?: (callback: (channel: ParleyChannel) => void) => void;
+}
+
+/** The forum's websocket, which flarum/realtime puts on `app`. */
+interface ParleyWebsocket {
+  subscribe(name: string): ParleyChannel | null | undefined;
+  connection?: { state?: string };
+}
+
+/** What Parley reads off `app` that only other extensions put there. */
+interface AppExtras {
+  websocket?: ParleyWebsocket;
+  parleyVoice?: { session?: { roomId: number } | null };
+}
+
+/** Someone read a conversation up to a message (the `parley.read` push). */
+interface ReadEvent {
+  conversationId: number;
+  userId: number;
+  messageId: number;
+}
+
+/** Someone is typing (the `parley.typing` push). */
+interface TypingEvent {
+  conversationId: number;
+  userId: number;
+}
+
+type Status = 'online' | 'away' | 'busy' | 'invisible' | string;
+type Id = number | string;
+/** A tag, when Tags is installed: only its slug is read. */
+interface TagModel extends Model {
+  slug(): string;
+}
+/** What load() can ask for: a page around a message, before one, or the latest. */
+type LoadParams = { around?: Id; before?: Id; after?: Id; latest?: number };
+/** What file() changes on a conversation. */
+type FileChanges = { muted?: boolean; archived?: boolean; starred?: boolean; label?: string | null };
+/** A queued message as it is kept in storage across a reload. */
+type SavedQueueItem = Pick<QueueItem, 'nonce' | 'conversationId' | 'body' | 'replyToId' | 'state'>;
+
+/** `app`, with what other extensions put on it. */
+const host = app as typeof app & AppExtras;
 
 const HEARTBEAT = 30000;
 const HEARTBEAT_NO_REALTIME = 15000;
@@ -26,10 +94,75 @@ export const MOBILE_BREAKPOINT = 820;
  * `app.parley`, not an import.
  */
 export default class ParleyState {
+  config: ParleyConfig;
+  me: User;
+  chosenStatus: Status;
+  idle: boolean;
+
+  online: OnlinePerson[];
+  followingOffline: OnlinePerson[];
+  more: number;
+  guests: number;
+  loaded: boolean;
+
+  rooms: Room[];
+  childRooms: Record<string, Room[]>;
+  expanded: Set<number>;
+  cards: Map<number, Person>;
+
+  convs: Map<number, ConvEntry>;
+  unread: Record<string, number>;
+  requests: number;
+  quiet: Set<number>;
+  drafts: Record<string, string>;
+  queue: QueueItem[];
+  members: Record<string, Person[]>;
+  open: number[];
+  heads: number[];
+  minimised: Set<number>;
+  flash: Set<number>;
+  replyTo: Record<string, Message>;
+  editing: Record<string, Message>;
+  /** The message being reported, and where. */
+  reporting: { conversationId: number; message: Message } | null;
+  pageConversation: number | null;
+
+  filter: string;
+  found: Person[];
+  sections: { rooms: boolean; follow: boolean; all: boolean };
+  statusMenu: boolean;
+  railPinned: boolean;
+  railHidden: boolean;
+  railSheet: boolean;
+
+  realtime: boolean;
+  lastTypingSent: Record<string, number>;
+  listeners: Set<(channel: ParleyChannel) => void>;
+
+  callsInstalled: boolean;
+  /** Set by a translator extension (Rosetta) to show a message in the reader's language. */
+  translate?: (message: Message) => Translation | null | undefined;
+
+  // Set as Parley runs, not in the constructor.
+  timer?: ReturnType<typeof setTimeout>;
+  poller?: ReturnType<typeof setInterval>;
+  typingSweep?: ReturnType<typeof setInterval>;
+  movedTimer?: ReturnType<typeof setTimeout>;
+  presenceTimer?: ReturnType<typeof setTimeout> | null;
+  draftTimer?: ReturnType<typeof setTimeout>;
+  searchTimer?: ReturnType<typeof setTimeout>;
+  presenceStale?: boolean;
+  whereKey?: string;
+  lastBeatAt?: number;
+  roomUse?: { id: number; at: number };
+  listVersion?: number;
+  jumpNext?: { id: number; around: number } | null;
+
   constructor() {
-    this.config = app.forum.attribute('parley') || {};
+    this.config = app.forum.attribute<ParleyConfig>('parley') || {};
     const user = app.session.user;
-    this.me = user;
+    // Only built for a signed-in member: index.tsx returns first for a guest.
+    this.me = user!;
     this.chosenStatus = (user && user.preferences()?.parleyStatus) || 'online';
     this.idle = false;
 
@@ -149,7 +282,7 @@ export default class ParleyState {
     return this.chosenStatus;
   }
 
-  setStatus(status) {
+  setStatus(status: Status) {
     this.chosenStatus = status;
     this.statusMenu = false;
     this.beat();
@@ -157,21 +290,21 @@ export default class ParleyState {
   }
 
   /** Where the visitor is right now, in the heartbeat's terms. */
-  where() {
-    const base = (app.forum.attribute('basePath') || '').replace(/\/$/, '');
+  where(): Place {
+    const base = (app.forum.attribute<string>('basePath') || '').replace(/\/$/, '');
     let path = window.location.pathname;
     if (base && path.startsWith(base)) path = path.slice(base.length) || '/';
     const where = placeFromPath(path);
 
     if (where.tagSlug) {
-      const tag = app.store.all('tags').find((t) => t.slug() === where.tagSlug);
+      const tag = app.store.all<TagModel>('tags').find((t) => t.slug() === where.tagSlug);
       where.tagId = tag ? Number(tag.id()) : null;
       delete where.tagSlug;
     }
 
     // What you are doing, most present first: talking in a room's voice
     // chat, writing a reply, chatting in a room, then the page you are on.
-    const voice = app.parleyVoice && app.parleyVoice.session;
+    const voice = host.parleyVoice && host.parleyVoice.session;
     if (voice) return { place: 'voice', roomId: voice.roomId };
 
     // Writing a reply is its own activity: "Writing a reply · <thread>".
@@ -196,14 +329,14 @@ export default class ParleyState {
    * window left idle stops counting, so the line does not claim a room you
    * have drifted away from.
    */
-  activeRoom() {
+  activeRoom(): number | null {
     const use = this.roomUse;
     if (!use || Date.now() - use.at > ROOM_ACTIVE_MS) return null;
     const visible = this.pageConversation === use.id || (this.open.includes(use.id) && !this.minimised.has(use.id));
     return visible && this.isRoom(use.id) ? use.id : null;
   }
 
-  touchRoom(id) {
+  touchRoom(id: Id) {
     id = Number(id);
     if (this.isRoom(id)) this.roomUse = { id, at: Date.now() };
   }
@@ -234,7 +367,7 @@ export default class ParleyState {
     this.movedTimer = setTimeout(() => this.beat(), 800);
   }
 
-  placeKey(w) {
+  placeKey(w: Place): string {
     return [w.place, w.discussionId || '', w.tagId || '', w.roomId || ''].join(':');
   }
 
@@ -266,7 +399,7 @@ export default class ParleyState {
   bindRealtime() {
     if (!this.config.realtime || !('flarum-realtime' in (flarum.extensions || {}))) return;
 
-    let rt;
+    let rt: RealtimeState | undefined;
     try {
       rt = flarum.reg.get('flarum-realtime', 'forum/RealtimeState');
     } catch (e) {
@@ -282,22 +415,22 @@ export default class ParleyState {
     // channel, and this page asks for its own list. Resubscribed on reconnect.
     const subscribePublic = () => {
       try {
-        const channel = app.websocket && app.websocket.subscribe('public');
+        const channel = host.websocket && host.websocket.subscribe('public');
         channel && channel.bind('parley.presence', () => this.presenceChanged());
       } catch (e) {
         // No public channel: the list still refreshes every 30 seconds.
       }
     };
-    rt.onUserChannelReady((channel) => {
+    rt.onUserChannelReady((channel: ParleyChannel) => {
       // Here, not at start: the socket exists once this fires, and it fires
       // again after every reconnect with a fresh socket to subscribe on.
       subscribePublic();
-      channel.bind('parley.message', (d) => this.received(d.message, d.request));
-      channel.bind('parley.conversationChanged', (d) => this.refresh(d.conversationId));
-      channel.bind('parley.removed', (d) => this.forget(d.conversationId));
-      channel.bind('parley.messageChanged', (d) => this.changed(d.message));
-      channel.bind('parley.read', (d) => this.readBy(d));
-      channel.bind('parley.typing', (d) => this.typingFrom(d));
+      channel.bind('parley.message', (d: { message: Message; request?: boolean }) => this.received(d.message, d.request));
+      channel.bind('parley.conversationChanged', (d: { conversationId: number }) => this.refresh(d.conversationId));
+      channel.bind('parley.removed', (d: { conversationId: number }) => this.forget(d.conversationId));
+      channel.bind('parley.messageChanged', (d: { message: Message }) => this.changed(d.message));
+      channel.bind('parley.read', (d: ReadEvent) => this.readBy(d));
+      channel.bind('parley.typing', (d: TypingEvent) => this.typingFrom(d));
       this.listeners.forEach((fn) => fn(channel));
     });
   }
@@ -310,7 +443,7 @@ export default class ParleyState {
    */
   socketUp() {
     if (!this.realtime) return false;
-    const state = app.websocket && app.websocket.connection && app.websocket.connection.state;
+    const state = host.websocket && host.websocket.connection && host.websocket.connection.state;
     return state === 'connected';
   }
 
@@ -343,25 +476,25 @@ export default class ParleyState {
   }
 
   /** For Parley Calls: bind more events on the same channel. */
-  onChannel(fn) {
+  onChannel(fn: (channel: ParleyChannel) => void) {
     this.listeners.add(fn);
   }
 
   // ── Conversations ─────────────────────────────────────────────────────────
 
-  conv(id) {
+  conv(id: Id): ConvEntry | undefined {
     return this.convs.get(Number(id));
   }
 
-  remember(messages) {
+  remember(messages: (Message | null | undefined)[] | null | undefined) {
     (messages || []).forEach((m) => m && m.author && this.cards.set(m.author.id, m.author));
   }
 
-  card(userId) {
+  card(userId: Id | null | undefined): Person | null {
     return this.cards.get(Number(userId)) || this.person(userId) || null;
   }
 
-  room(id) {
+  room(id: Id): Room | null {
     id = Number(id);
     return (
       this.rooms.find((r) => r.id === id) ||
@@ -372,7 +505,7 @@ export default class ParleyState {
     );
   }
 
-  loadChildren(parentId) {
+  loadChildren(parentId: Id) {
     return api.rooms(parentId).then((r) => {
       if (r && r.rooms) {
         this.childRooms[parentId] = r.rooms;
@@ -381,7 +514,7 @@ export default class ParleyState {
     });
   }
 
-  toggleRoomGroup(parentId) {
+  toggleRoomGroup(parentId: Id) {
     parentId = Number(parentId);
     if (this.expanded.has(parentId)) {
       this.expanded.delete(parentId);
@@ -392,13 +525,13 @@ export default class ParleyState {
     this.save();
   }
 
-  isRoom(id) {
+  isRoom(id: Id): boolean {
     const c = this.conv(id);
     return (c && c.summary.type === 'room') || !!this.room(id);
   }
 
   /** Open a room: joining it, so its messages arrive live and it counts unread. */
-  openRoom(id) {
+  openRoom(id: Id): Promise<void> {
     id = Number(id);
     const room = this.room(id);
     const go = () => this.show(id);
@@ -412,7 +545,7 @@ export default class ParleyState {
     return Promise.resolve();
   }
 
-  leaveRoom(id) {
+  leaveRoom(id: Id) {
     id = Number(id);
     return api.leaveRoom(id).then((r) => {
       this.rooms = r.rooms || this.rooms;
@@ -420,7 +553,7 @@ export default class ParleyState {
     });
   }
 
-  ensure(summary, messages) {
+  ensure(summary: ConversationSummary, messages?: Message[] | null): ConvEntry {
     this.remember(messages);
     const id = summary.id;
     const existing = this.convs.get(id);
@@ -434,7 +567,14 @@ export default class ParleyState {
     }
     // A summary from a list carries no messages: `loaded` says whether the
     // conversation itself has been fetched yet.
-    const c = { summary, messages: messages || [], loaded: !!messages, hasOlder: (messages || []).length >= 40, loadingOlder: false, typing: {} };
+    const c: ConvEntry = {
+      summary,
+      messages: messages || [],
+      loaded: !!messages,
+      hasOlder: (messages || []).length >= 40,
+      loadingOlder: false,
+      typing: {},
+    };
     // Where "New messages" goes: after what was read before this visit.
     c.newFrom = summary.lastReadMessageId || 0;
     this.convs.set(id, c);
@@ -442,7 +582,7 @@ export default class ParleyState {
   }
 
   /** A conversation changed somewhere else — another tab filed or accepted it. */
-  refresh(id) {
+  refresh(id: Id) {
     if (!this.conv(id)) return;
     api.show(id, { latest: 1 }).then((r) => {
       if (!r) return;
@@ -453,7 +593,7 @@ export default class ParleyState {
   }
 
   /** Gone from a group, or the group is gone. */
-  forget(id) {
+  forget(id: Id) {
     id = Number(id);
     this.close(id);
     this.convs.delete(id);
@@ -468,7 +608,7 @@ export default class ParleyState {
     m.redraw();
   }
 
-  load(id, params = {}) {
+  load(id: Id, params: LoadParams = {}) {
     return api
       .show(id, params)
       .then((r) => {
@@ -497,7 +637,7 @@ export default class ParleyState {
   }
 
   /** Open the conversation with a person: click their row, their card, anything. */
-  openWith(userId) {
+  openWith(userId: Id): Promise<void> {
     const existing = [...this.convs.values()].find((c) => !c.summary.isGroup && c.summary.participants.some((p) => p.id === Number(userId)));
     if (existing) return Promise.resolve(this.show(existing.summary.id));
 
@@ -508,28 +648,28 @@ export default class ParleyState {
   }
 
   /** Open a conversation full size, on the inbox page. */
-  expand(id) {
+  expand(id: Id) {
     id = Number(id);
     this.close(id);
     m.route.set(app.route('parley.conversation', { id }));
   }
 
   /** Open a conversation on the messages page, at a message when one is given. */
-  openAt(id, messageId) {
+  openAt(id: Id, messageId?: Id | null) {
     this.jumpNext = messageId ? { id: Number(id), around: Number(messageId) } : null;
     m.route.set(app.route('parley.conversation', { id }));
   }
 
   /** What the messages page does when a conversation is selected. */
-  select(id) {
+  select(id: Id) {
     const jump = this.jumpNext && this.jumpNext.id === Number(id) ? this.jumpNext : null;
     this.jumpNext = null;
     if (jump) return this.load(id, { around: jump.around });
-    if (this.conv(id) && this.conv(id).loaded) return this.markRead(id);
+    if (this.conv(id)?.loaded) return this.markRead(id);
     return this.load(id);
   }
 
-  show(id) {
+  show(id: Id): void {
     id = Number(id);
     // On the inbox page the conversation opens there, not in a window over it.
     if (this.onInbox()) {
@@ -547,7 +687,7 @@ export default class ParleyState {
     this.markRead(id);
     this.save();
     m.redraw();
-    if (!this.conv(id) || !this.conv(id).loaded) this.load(id);
+    if (!this.conv(id)?.loaded) this.load(id);
     setTimeout(() => document.getElementById(`Parley-input-${id}`)?.focus(), 0);
   }
 
@@ -555,16 +695,16 @@ export default class ParleyState {
   fit() {
     const width = window.innerWidth;
     if (width < MOBILE_BREAKPOINT) {
-      while (this.open.length > 1) this.heads.unshift(this.open.shift());
+      while (this.open.length > 1) this.heads.unshift(this.open.shift()!);
       return;
     }
     const rail = this.railDocked() ? RAIL_WIDTH : 0;
     const max = windowsThatFit(width, rail);
-    while (this.open.length > max) this.heads.unshift(this.open.shift());
+    while (this.open.length > max) this.heads.unshift(this.open.shift()!);
     this.heads = this.heads.slice(0, MAX_HEADS);
   }
 
-  toHead(id) {
+  toHead(id: Id) {
     id = Number(id);
     this.open = this.open.filter((o) => o !== id);
     if (!this.heads.includes(id)) this.heads.unshift(id);
@@ -572,14 +712,14 @@ export default class ParleyState {
     this.save();
   }
 
-  toggleMinimised(id) {
+  toggleMinimised(id: Id) {
     id = Number(id);
     this.minimised.has(id) ? this.minimised.delete(id) : this.minimised.add(id);
     if (!this.minimised.has(id)) this.markRead(id);
     this.save();
   }
 
-  close(id) {
+  close(id: Id) {
     id = Number(id);
     this.open = this.open.filter((o) => o !== id);
     this.heads = this.heads.filter((h) => h !== id);
@@ -590,7 +730,7 @@ export default class ParleyState {
     m.redraw();
   }
 
-  isVisible(id) {
+  isVisible(id: Id): boolean {
     id = Number(id);
     if (typeof document === 'undefined' || document.visibilityState !== 'visible') return false;
     // Open in the inbox page counts as being read, the same as a docked window.
@@ -598,7 +738,7 @@ export default class ParleyState {
     return this.open.includes(id) && !this.minimised.has(id);
   }
 
-  older(id) {
+  older(id: Id) {
     const c = this.conv(id);
     if (!c || c.loadingOlder || !c.hasOlder || !c.messages.length) return;
     c.loadingOlder = true;
@@ -612,7 +752,7 @@ export default class ParleyState {
 
   // ── Messages in ───────────────────────────────────────────────────────────
 
-  received(message, request = false) {
+  received(message: Message, request = false) {
     this.remember([message]);
     const id = message.conversationId;
     const c = this.conv(id);
@@ -645,7 +785,7 @@ export default class ParleyState {
     this.listChanged();
   }
 
-  arrived(id, message, request = false) {
+  arrived(id: number, message: Message, request = false) {
     const mine = message.userId === Number(this.me.id());
 
     // A request is filed quietly: no head, no flash, no count on the badge.
@@ -685,7 +825,7 @@ export default class ParleyState {
     m.redraw();
   }
 
-  changed(message) {
+  changed(message: Message) {
     const c = this.conv(message.conversationId);
     if (!c) return;
     const i = c.messages.findIndex((x) => x.id === message.id);
@@ -693,7 +833,7 @@ export default class ParleyState {
     m.redraw();
   }
 
-  readBy({ conversationId, userId, messageId }) {
+  readBy({ conversationId, userId, messageId }: ReadEvent) {
     const c = this.conv(conversationId);
     if (!c) return;
     if (userId === Number(this.me.id())) {
@@ -705,7 +845,7 @@ export default class ParleyState {
     m.redraw();
   }
 
-  typingFrom({ conversationId, userId }) {
+  typingFrom({ conversationId, userId }: TypingEvent) {
     const c = this.conv(conversationId);
     if (!c) return;
     c.typing[userId] = Date.now() + TYPING_TTL;
@@ -726,7 +866,7 @@ export default class ParleyState {
     if (changed) m.redraw();
   }
 
-  applyUnread(map) {
+  applyUnread(map: Record<string, number>) {
     for (const key in map) {
       const id = Number(key);
       const n = map[key];
@@ -785,23 +925,23 @@ export default class ParleyState {
    * you out of your own list, so the list's length alone reads "0 online"
    * while you are sitting there.
    */
-  onlineCount() {
+  onlineCount(): number {
     return this.online.length + (this.more || 0) + (this.status === 'invisible' ? 0 : 1);
   }
 
   /** Direct messages only: a busy room should not shout from the pill, nor a muted chat. */
-  totalUnread() {
+  totalUnread(): number {
     return Object.entries(this.unread).reduce((a, [id, n]) => a + (this.isRoom(id) || this.isMuted(id) ? 0 : n || 0), 0);
   }
 
   /** Muted or archived: news that neither pops up nor counts on the badge. */
-  isMuted(id) {
+  isMuted(id: Id): boolean {
     id = Number(id);
     const c = this.conv(id);
     return c ? !!(c.summary.muted || c.summary.archived) : this.quiet.has(id);
   }
 
-  onInbox() {
+  onInbox(): boolean {
     return !!(app.current && app.current.get && app.current.get('routeName') && String(app.current.get('routeName')).startsWith('parley.'));
   }
 
@@ -813,14 +953,14 @@ export default class ParleyState {
    * a repeat with the message it already made), and a refusal leaves it
    * marked, with Retry and Delete, instead of losing the words.
    */
-  send(id, body) {
+  send(id: Id, body: string) {
     id = Number(id);
     this.touchRoom(id);
     const replyTo = this.replyTo[id];
     delete this.replyTo[id];
     this.setDraft(id, '');
 
-    const item = { nonce: nonce(), conversationId: id, body, replyToId: replyTo ? replyTo.id : null, tries: 0, state: 'sending' };
+    const item: QueueItem = { nonce: nonce(), conversationId: id, body, replyToId: replyTo ? replyTo.id : null, tries: 0, state: 'sending' };
     this.queue.push(item);
     this.drawPending(item, replyTo);
     this.saveQueue();
@@ -828,7 +968,7 @@ export default class ParleyState {
   }
 
   /** The greyed bubble of a message on its way. */
-  drawPending(item, replyTo = null) {
+  drawPending(item: QueueItem, replyTo: Message | null | undefined = null) {
     const c = this.conv(item.conversationId);
     if (!c || c.messages.some((x) => x.nonce === item.nonce)) return;
     c.messages.push({
@@ -847,7 +987,7 @@ export default class ParleyState {
     m.redraw();
   }
 
-  attempt(item) {
+  attempt(item: QueueItem): Promise<void> {
     item.state = 'sending';
     this.markPending(item);
     return api.send(item.conversationId, item.body, item.replyToId, item.nonce).then(
@@ -856,7 +996,7 @@ export default class ParleyState {
         this.saveQueue();
         this.received(r.message);
       },
-      (error) => {
+      (error: RequestError | null | undefined) => {
         // No answer, or the server was having a moment: try again. Anything
         // else is the server saying no, which trying again will not change.
         const transient = !error || !error.status || error.status >= 500 || error.status === 429;
@@ -867,7 +1007,7 @@ export default class ParleyState {
           item.timer = setTimeout(() => this.attempt(item), RETRY_STEPS[Math.min(item.tries - 1, RETRY_STEPS.length - 1)]);
         } else {
           item.state = 'failed';
-          item.error = error.alert && error.alert.content;
+          item.error = error!.alert && error!.alert.content;
         }
         this.markPending(item);
         this.saveQueue();
@@ -875,7 +1015,7 @@ export default class ParleyState {
     );
   }
 
-  markPending(item) {
+  markPending(item: QueueItem) {
     const c = this.conv(item.conversationId);
     const msg = c && c.messages.find((x) => x.nonce === item.nonce && x.pending);
     if (msg) {
@@ -886,12 +1026,12 @@ export default class ParleyState {
     m.redraw();
   }
 
-  retry(nonceValue) {
+  retry(nonceValue: string | undefined) {
     const item = this.queue.find((q) => q.nonce === nonceValue);
     if (item) this.attempt(item);
   }
 
-  discard(nonceValue) {
+  discard(nonceValue: string | undefined) {
     const item = this.queue.find((q) => q.nonce === nonceValue);
     if (item) clearTimeout(item.timer);
     this.queue = this.queue.filter((q) => q.nonce !== nonceValue);
@@ -900,7 +1040,7 @@ export default class ParleyState {
     m.redraw();
   }
 
-  flushQueue(now) {
+  flushQueue(now?: boolean) {
     this.queue
       .filter((q) => q.state === 'waiting')
       .forEach((q) => {
@@ -920,14 +1060,14 @@ export default class ParleyState {
 
   /** Messages still on their way when the page was closed go on their way again. */
   restoreQueue() {
-    let saved = [];
+    let saved: SavedQueueItem[] = [];
     try {
       saved = JSON.parse(localStorage.getItem(this.key() + ':queue') || '[]');
     } catch (e) {
       // Nothing saved.
     }
     saved.forEach((q) => {
-      const item = { ...q, tries: 0, state: q.state === 'failed' ? 'failed' : 'waiting' };
+      const item: QueueItem = { ...q, tries: 0, state: q.state === 'failed' ? 'failed' : 'waiting' };
       this.queue.push(item);
       const draw = () => this.drawPending(item);
       this.conv(item.conversationId) ? draw() : this.load(item.conversationId).then(draw);
@@ -936,7 +1076,7 @@ export default class ParleyState {
   }
 
   /** Pending messages drawn again after a conversation is fetched afresh. */
-  redrawPending(id) {
+  redrawPending(id: Id) {
     this.queue.filter((q) => q.conversationId === Number(id)).forEach((q) => this.drawPending(q));
   }
 
@@ -944,7 +1084,7 @@ export default class ParleyState {
    * A picture, video, voice note or file. Not queued — a file cannot be kept
    * across a reload — but it reports its progress on the conversation.
    */
-  upload(id, file, kind, extra = {}) {
+  upload(id: Id, file: File, kind: string, extra: Record<string, string | Blob | null | undefined> = {}) {
     const c = this.conv(id);
     if (c) c.uploading = { name: file.name || '', progress: 0 };
     m.redraw();
@@ -964,7 +1104,7 @@ export default class ParleyState {
           done();
           this.received(r.message);
         },
-        (error) => {
+        (error: RequestError | null | undefined) => {
           done();
           app.alerts.show({ type: 'error' }, (error && error.alert && error.alert.content) || app.translator.trans('core.lib.error.generic_message'));
         }
@@ -973,7 +1113,7 @@ export default class ParleyState {
 
   // ── Drafts ────────────────────────────────────────────────────────────────
 
-  setDraft(id, text) {
+  setDraft(id: Id, text: string | null | undefined) {
     id = Number(id);
     if (text && text.trim()) this.drafts[id] = text;
     else delete this.drafts[id];
@@ -998,20 +1138,21 @@ export default class ParleyState {
   // ── Filing ────────────────────────────────────────────────────────────────
 
   /** Mute, archive, star or label, drawn at once and saved behind. */
-  file(id, changes) {
+  file(id: Id, changes: FileChanges) {
     const c = this.conv(id);
     if (c) {
-      if ('muted' in changes) c.summary.muted = changes.muted;
-      if ('archived' in changes) c.summary.archived = changes.archived;
-      if ('starred' in changes) c.summary.starred = changes.starred;
-      if ('label' in changes) c.summary.label = changes.label;
+      // `in` says the key was given, so its value is the new one.
+      if ('muted' in changes) c.summary.muted = changes.muted as boolean;
+      if ('archived' in changes) c.summary.archived = changes.archived as boolean;
+      if ('starred' in changes) c.summary.starred = changes.starred as boolean;
+      if ('label' in changes) c.summary.label = changes.label as string | null;
     }
     if ('muted' in changes) changes.muted ? this.quiet.add(Number(id)) : this.quiet.delete(Number(id));
     m.redraw();
     return api.settings(id, changes).then(() => this.listChanged());
   }
 
-  accept(id) {
+  accept(id: Id) {
     return api.accept(id).then(() => {
       const c = this.conv(id);
       if (c) c.summary.request = false;
@@ -1022,7 +1163,7 @@ export default class ParleyState {
   }
 
   /** Pin or unpin a message for everyone in the conversation. */
-  pin(messageId, on) {
+  pin(messageId: Id, on: boolean) {
     return api.pin(messageId, on).then((r) => {
       this.changed(r.message);
       const c = this.conv(r.message.conversationId);
@@ -1033,7 +1174,7 @@ export default class ParleyState {
     });
   }
 
-  forward(messageId, conversationIds) {
+  forward(messageId: Id, conversationIds: Id[]) {
     return api.forward(messageId, conversationIds).then((r) => {
       r.messages.forEach((msg) => this.received(msg));
       return r.messages;
@@ -1041,7 +1182,7 @@ export default class ParleyState {
   }
 
   /** A new group: drawn and opened as soon as the server has it. */
-  createGroup(userIds, name) {
+  createGroup(userIds: Id[], name?: string | null) {
     return api.createGroup(userIds, name).then((r) => {
       this.ensure(r.conversation, r.messages);
       this.listChanged();
@@ -1051,7 +1192,7 @@ export default class ParleyState {
   }
 
   /** After a group change: the new summary and member list. */
-  groupChanged(r) {
+  groupChanged(r: GroupResponse | null | undefined) {
     if (!r || r.left) return;
     const c = this.conv(r.conversation.id);
     if (c) c.summary = { ...c.summary, ...r.conversation };
@@ -1059,23 +1200,23 @@ export default class ParleyState {
     this.listChanged();
   }
 
-  leaveGroup(id) {
-    return api.removeMember(id, this.me.id()).then(() => this.forget(id));
+  leaveGroup(id: Id) {
+    return api.removeMember(id, this.me.id()!).then(() => this.forget(id));
   }
 
-  edit(messageId, body) {
+  edit(messageId: Id, body: string) {
     return api.edit(messageId, body).then((r) => this.changed(r.message));
   }
 
-  remove(messageId) {
+  remove(messageId: Id) {
     return api.remove(messageId).then((r) => this.changed(r.message));
   }
 
-  react(messageId, emoji) {
+  react(messageId: Id, emoji: string) {
     return api.react(messageId, emoji).then((r) => this.changed(r.message));
   }
 
-  typing(id) {
+  typing(id: Id) {
     this.touchRoom(id);
     const now = Date.now();
     if (now - (this.lastTypingSent[id] || 0) < TYPING_SEND_EVERY) return;
@@ -1083,7 +1224,7 @@ export default class ParleyState {
     if (this.socketUp()) api.action(id, 'typing');
   }
 
-  markRead(id) {
+  markRead(id: Id) {
     const c = this.conv(id);
     const sent = c ? c.messages.filter((x) => !x.pending) : [];
     if (!c || !sent.length || !this.isVisible(id)) return;
@@ -1094,7 +1235,7 @@ export default class ParleyState {
     api.action(id, 'read', { messageId: last });
   }
 
-  hide(id) {
+  hide(id: Id) {
     api.action(id, 'hide');
     this.close(id);
     this.listChanged();
@@ -1102,7 +1243,7 @@ export default class ParleyState {
 
   // ── People ────────────────────────────────────────────────────────────────
 
-  search(q) {
+  search(q: string) {
     this.filter = q;
     clearTimeout(this.searchTimer);
     if (q.trim().length < 2) {
@@ -1119,11 +1260,11 @@ export default class ParleyState {
     }, 250);
   }
 
-  follow(userId, on) {
+  follow(userId: Id, on: boolean) {
     return api.person(userId, 'follow', on).then(() => this.beat());
   }
 
-  block(userId, on) {
+  block(userId: Id, on: boolean) {
     return api.person(userId, 'block', on).then(() => {
       this.beat();
       [...this.convs.values()]
@@ -1132,7 +1273,7 @@ export default class ParleyState {
     });
   }
 
-  person(userId) {
+  person(userId: Id | null | undefined): Person | undefined {
     userId = Number(userId);
     return (
       this.online.find((p) => p.id === userId) ||
@@ -1142,7 +1283,7 @@ export default class ParleyState {
   }
 
   /** Live presence for someone in a conversation, from the latest heartbeat. */
-  presenceOf(userId) {
+  presenceOf(userId: Id): Partial<OnlinePerson> & { status: string; activity: Activity | null } {
     const p = this.online.find((x) => x.id === Number(userId));
     if (p) return p;
     const f = this.followingOffline.find((x) => x.id === Number(userId));
@@ -1151,11 +1292,11 @@ export default class ParleyState {
 
   // ── Layout ────────────────────────────────────────────────────────────────
 
-  isMobile() {
+  isMobile(): boolean {
     return window.innerWidth < MOBILE_BREAKPOINT;
   }
 
-  railDocked() {
+  railDocked(): boolean {
     return this.railPinned && window.innerWidth >= DOCK_BREAKPOINT;
   }
 
@@ -1169,7 +1310,7 @@ export default class ParleyState {
   }
 
   /** Pin the list down the side of the page, or let it float again. */
-  pinRail(on) {
+  pinRail(on: boolean) {
     this.railPinned = on;
     this.railHidden = !on;
     this.railSheet = false;
@@ -1180,7 +1321,7 @@ export default class ParleyState {
 
   // ── Persistence ───────────────────────────────────────────────────────────
 
-  key() {
+  key(): string {
     return 'parley:ui:' + (this.me ? this.me.id() : 'guest');
   }
 
@@ -1212,8 +1353,8 @@ export default class ParleyState {
 }
 
 /** A random id for one send, so a retry is recognised as the same message. */
-function nonce() {
+function nonce(): string {
   const bytes = new Uint8Array(12);
-  (window.crypto || window.msCrypto).getRandomValues(bytes);
+  ((window.crypto || (window as Window & { msCrypto?: Crypto }).msCrypto) as Crypto).getRandomValues(bytes);
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 }

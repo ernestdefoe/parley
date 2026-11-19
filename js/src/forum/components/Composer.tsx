@@ -1,14 +1,29 @@
 import app from 'flarum/forum/app';
-import Component from 'flarum/common/Component';
+import Component, { type ComponentAttrs } from 'flarum/common/Component';
+import type Mithril from 'mithril';
 import extractText from 'flarum/common/utils/extractText';
 import Avatar from './Avatar';
 import Icons from '../icons';
 import api from '../api';
+import type { ConvEntry as Conv, Person } from '../types';
 
-const t = (key, params) => app.translator.trans('ernestdefoe-parley.forum.window.' + key, params);
+export interface ComposerAttrs extends ComponentAttrs {
+  conv: Conv;
+  /** The conversation's name, for the message box's label. */
+  title: string;
+}
+
+/** The @word being typed, where it starts, and who it could be. */
+interface Mention {
+  query: string;
+  start: number;
+  list: Person[];
+}
+
+const t = (key: string, params: Record<string, unknown> = {}) => app.translator.trans('ernestdefoe-parley.forum.window.' + key, params);
 
 /** Size the message box to its text, up to its CSS max-height, then scroll. */
-function grow(el) {
+function grow(el: HTMLTextAreaElement | null) {
   if (!el) return;
   el.style.height = 'auto';
   el.style.height = el.scrollHeight + 'px';
@@ -18,7 +33,7 @@ function grow(el) {
 }
 
 /** The @word being typed just before the caret, if any. */
-function mentionAt(el) {
+function mentionAt(el: HTMLTextAreaElement) {
   const before = el.value.slice(0, el.selectionStart);
   const m2 = /(^|\s)@([\w.-]{0,30})$/.exec(before);
   return m2 ? { query: m2[2].toLowerCase(), start: before.length - m2[2].length - 1 } : null;
@@ -30,8 +45,16 @@ function mentionAt(el) {
  * and a one-tap 👍. The emoji picker and the recorder load the first time
  * they are opened, never with the page.
  */
-export default class Composer extends Component {
-  oninit(vnode) {
+export default class Composer extends Component<ComposerAttrs> {
+  hasText!: boolean;
+  plusOpen!: boolean;
+  emoji!: typeof import('./EmojiPicker').default | null;
+  recorder!: typeof import('./Recorder').default | null;
+  mention!: Mention | null;
+  mentionIndex!: number;
+  fetching?: boolean;
+
+  oninit(vnode: Mithril.Vnode<ComposerAttrs, this>) {
     super.oninit(vnode);
     this.hasText = !!app.parley.drafts[this.attrs.conv.summary.id];
     this.plusOpen = false;
@@ -55,9 +78,10 @@ export default class Composer extends Component {
         <div className="pl-composer recording">
           <Recorder
             max={s.config.maxVoiceSeconds || 300}
-            ondone={(blob, seconds) => {
+            ondone={(blob: Blob | null, seconds?: number) => {
               this.recorder = null;
-              if (blob) s.upload(id, blobFile(blob), 'voice', { seconds: seconds.toFixed(1) });
+              // A recording always comes with its length.
+              if (blob) s.upload(id, blobFile(blob), 'voice', { seconds: seconds!.toFixed(1) });
             }}
           />
         </div>
@@ -65,7 +89,7 @@ export default class Composer extends Component {
     }
 
     return (
-      <form className="pl-composer" onsubmit={(e) => this.submit(e)}>
+      <form className="pl-composer" onsubmit={(e: SubmitEvent) => this.submit(e)}>
         {conv.uploading ? (
           <div className="pl-progress" aria-label={extractText(t('uploading'))}>
             <i style={{ width: Math.round((conv.uploading.progress || 0) * 100) + '%' }} />
@@ -88,16 +112,16 @@ export default class Composer extends Component {
             <div className="pl-plus-menu Dropdown-menu">
               <button
                 type="button"
-                onclick={(e) => this.pick(e, 'image/jpeg,image/png,image/gif,image/webp,video/mp4,video/webm,video/quicktime', 'media')}
+                onclick={(e: MouseEvent) => this.pick(e, 'image/jpeg,image/png,image/gif,image/webp,video/mp4,video/webm,video/quicktime', 'media')}
               >
                 {Icons.img()} {t('photo_or_video')}
               </button>
-              <button type="button" onclick={(e) => this.pick(e, '', 'file')}>
+              <button type="button" onclick={(e: MouseEvent) => this.pick(e, '', 'file')}>
                 {Icons.file()} {t('file')}
               </button>
             </div>
           ) : null}
-          <input type="file" hidden onchange={(e) => this.picked(e)} />
+          <input type="file" hidden onchange={(e: Event) => this.picked(e)} />
         </div>
 
         <div className="pl-input-wrap">
@@ -114,30 +138,33 @@ export default class Composer extends Component {
             placeholder={extractText(t('placeholder'))}
             autocomplete="off"
             aria-label={extractText(t('message_to', { name: title }))}
-            oncreate={(v) => {
-              v.dom.value = editing ? editing.body : s.drafts[id] || '';
-              grow(v.dom);
+            oncreate={(v: Mithril.VnodeDOM<Mithril.Attributes>) => {
+              const dom = v.dom as HTMLTextAreaElement;
+              dom.value = editing ? (editing.body ?? '') : s.drafts[id] || '';
+              grow(dom);
             }}
-            onupdate={(v) => {
-              if (editing && v.dom.dataset.editing !== String(editing.id)) {
-                v.dom.value = editing.body;
-                v.dom.dataset.editing = String(editing.id);
+            onupdate={(v: Mithril.VnodeDOM<Mithril.Attributes>) => {
+              const dom = v.dom as HTMLTextAreaElement;
+              if (editing && dom.dataset.editing !== String(editing.id)) {
+                dom.value = editing.body ?? '';
+                dom.dataset.editing = String(editing.id);
                 this.hasText = true;
-              } else if (!editing && v.dom.dataset.editing) {
-                v.dom.value = '';
-                delete v.dom.dataset.editing;
+              } else if (!editing && dom.dataset.editing) {
+                dom.value = '';
+                delete dom.dataset.editing;
                 this.hasText = false;
               }
-              grow(v.dom);
+              grow(dom);
             }}
-            oninput={(e) => {
-              grow(e.target);
-              this.hasText = e.target.value.trim() !== '';
-              if (!editing) s.setDraft(id, e.target.value);
+            oninput={(e: InputEvent) => {
+              const el = e.target as HTMLTextAreaElement;
+              grow(el);
+              this.hasText = el.value.trim() !== '';
+              if (!editing) s.setDraft(id, el.value);
               s.typing(id);
-              this.findMention(e.target);
+              this.findMention(el);
             }}
-            onkeydown={(e) => this.key(e)}
+            onkeydown={(e: KeyboardEvent) => this.key(e)}
             onfocus={() => s.markRead(id)}
           />
           <button
@@ -151,7 +178,7 @@ export default class Composer extends Component {
           </button>
           {this.emoji ? (
             <this.emoji
-              onpick={(char) => this.insert(char)}
+              onpick={(char: string) => this.insert(char)}
               onclose={() => {
                 this.emoji = null;
               }}
@@ -192,10 +219,10 @@ export default class Composer extends Component {
   }
 
   input() {
-    return document.getElementById(`Parley-input-${this.attrs.conv.summary.id}`);
+    return document.getElementById(`Parley-input-${this.attrs.conv.summary.id}`) as HTMLTextAreaElement | null;
   }
 
-  key(e) {
+  key(e: KeyboardEvent) {
     const s = app.parley;
     const id = this.attrs.conv.summary.id;
 
@@ -228,15 +255,16 @@ export default class Composer extends Component {
     // half-typed words.
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229) {
       e.preventDefault();
-      e.target.form?.requestSubmit();
+      (e.target as HTMLTextAreaElement).form?.requestSubmit();
     }
   }
 
-  submit(e) {
+  submit(e: SubmitEvent) {
     e.preventDefault();
     const s = app.parley;
     const id = this.attrs.conv.summary.id;
-    const input = this.input();
+    // The form is drawn with its message box, so the box is there.
+    const input = this.input()!;
     const body = input.value.trim();
     if (!body) return;
 
@@ -259,18 +287,20 @@ export default class Composer extends Component {
     input.focus();
   }
 
-  pick(e, accept, kind) {
+  pick(e: MouseEvent, accept: string, kind: string) {
     this.plusOpen = false;
-    const input = e.currentTarget.closest('.pl-plus-wrap').querySelector('input[type=file]');
+    // The menu's buttons sit in .pl-plus-wrap beside its file input.
+    const input = (e.currentTarget as HTMLElement).closest('.pl-plus-wrap')!.querySelector<HTMLInputElement>('input[type=file]')!;
     input.accept = accept;
     input.dataset.kind = kind;
     input.click();
   }
 
-  picked(e) {
-    const file = e.target.files[0];
-    const kind = e.target.dataset.kind;
-    e.target.value = '';
+  picked(e: Event) {
+    const target = e.target as HTMLInputElement;
+    const file = target.files![0];
+    const kind = target.dataset.kind;
+    target.value = '';
     if (!file) return;
 
     const s = app.parley;
@@ -304,7 +334,7 @@ export default class Composer extends Component {
     });
   }
 
-  insert(text) {
+  insert(text: string) {
     const el = this.input();
     if (!el) return;
     const start = el.selectionStart ?? el.value.length;
@@ -316,7 +346,7 @@ export default class Composer extends Component {
   }
 
   /** Who to suggest for an @: the group's members, or people met in a room. */
-  findMention(el) {
+  findMention(el: HTMLTextAreaElement) {
     const s = app.parley;
     const conv = this.attrs.conv;
     const id = conv.summary.id;
@@ -340,7 +370,7 @@ export default class Composer extends Component {
     const me = Number(s.me.id());
     const pool = conv.summary.isGroup ? s.members[id] || conv.summary.participants : [...s.cards.values()];
     const list = pool
-      .filter((p) => p.id !== me && (p.username.toLowerCase().startsWith(at.query) || (p.displayName || '').toLowerCase().includes(at.query)))
+      .filter((p: Person) => p.id !== me && (p.username.toLowerCase().startsWith(at.query) || (p.displayName || '').toLowerCase().includes(at.query)))
       .slice(0, 6);
 
     this.mention = list.length ? { ...at, list } : null;
@@ -350,14 +380,14 @@ export default class Composer extends Component {
   mentionList() {
     return (
       <ul className="pl-mentions Dropdown-menu" role="listbox">
-        {this.mention.list.map((p, i) => (
+        {this.mention!.list.map((p, i) => (
           <li>
             <button
               type="button"
               role="option"
               className={i === this.mentionIndex ? 'active' : ''}
               aria-selected={String(i === this.mentionIndex)}
-              onmousedown={(e) => {
+              onmousedown={(e: MouseEvent) => {
                 e.preventDefault();
                 this.complete(p);
               }}
@@ -370,7 +400,7 @@ export default class Composer extends Component {
     );
   }
 
-  complete(person) {
+  complete(person: Person) {
     const el = this.input();
     if (!el || !this.mention) return;
     const caret = el.selectionStart;
@@ -383,7 +413,7 @@ export default class Composer extends Component {
 }
 
 /** A recording, as a file the server can sniff: its real type decides the name. */
-function blobFile(blob) {
+function blobFile(blob: Blob) {
   const ext = /mp4|aac|m4a/.test(blob.type) ? 'm4a' : /ogg/.test(blob.type) ? 'ogg' : 'webm';
   return new File([blob], 'voice.' + ext, { type: blob.type || 'audio/webm' });
 }

@@ -1,5 +1,6 @@
 import app from 'flarum/forum/app';
-import Page from 'flarum/common/components/Page';
+import Page, { type IPageAttrs } from 'flarum/common/components/Page';
+import type Mithril from 'mithril';
 import LoadingIndicator from 'flarum/common/components/LoadingIndicator';
 import Dropdown from 'flarum/common/components/Dropdown';
 import Button from 'flarum/common/components/Button';
@@ -14,9 +15,10 @@ import Icons from '../icons';
 import api from '../api';
 import { clock } from '../util';
 import { convTitle, messagePreview } from '../labels';
+import type { ConversationSummary, Message, Person, Report, Room } from '../types';
 
-const t = (key, params) => app.translator.trans('ernestdefoe-parley.forum.inbox.' + key, params);
-const tw = (key, params) => app.translator.trans('ernestdefoe-parley.forum.window.' + key, params);
+const t = (key: string, params: Record<string, unknown> = {}) => app.translator.trans('ernestdefoe-parley.forum.inbox.' + key, params);
+const tw = (key: string, params: Record<string, unknown> = {}) => app.translator.trans('ernestdefoe-parley.forum.window.' + key, params);
 
 const MORE = ['mentions', 'pinned', 'starred', 'muted', 'archived', 'requests'];
 
@@ -27,8 +29,38 @@ const MORE = ['mentions', 'pinned', 'starred', 'muted', 'archived', 'requests'];
  *
  * Loaded when someone first comes here; nothing of it is on other pages.
  */
-export default class InboxPage extends Page {
-  oninit(vnode) {
+/** One filter's list, as far as it has been fetched. */
+interface ListState {
+  items: ConversationSummary[];
+  hasMore: boolean;
+  loading: boolean;
+}
+
+/** A message search: its words, its filters and, once back, what it found. */
+interface Found {
+  q: string;
+  loading: boolean;
+  type?: string | null;
+  from?: number | null;
+  since?: string | null;
+  until?: string | null;
+  messages?: Message[];
+  conversations?: Record<number, ConversationSummary>;
+}
+
+export default class InboxPage extends Page<IPageAttrs> {
+  filter!: string;
+  lists!: Record<string, ListState>;
+  query!: string;
+  found!: Found | null;
+  reports!: Report[] | null;
+  details!: boolean | null;
+  selected!: number | null;
+  seenVersion?: number;
+  refetch?: ReturnType<typeof setTimeout>;
+  width?: number;
+
+  oninit(vnode: Mithril.Vnode<IPageAttrs, this>) {
     super.oninit(vnode);
     this.bodyClass = 'Parley-inboxPage';
     this.filter = 'all';
@@ -38,7 +70,7 @@ export default class InboxPage extends Page {
     this.reports = null;
     // Open by default only where the conversation keeps a comfortable width
     // beside it; after that, whatever the member last chose.
-    let saved = null;
+    let saved: string | null = null;
     try {
       saved = localStorage.getItem('parley:details');
     } catch (e) {
@@ -62,7 +94,7 @@ export default class InboxPage extends Page {
     this.fetch('all');
   }
 
-  onbeforeupdate(vnode) {
+  onbeforeupdate(vnode: Mithril.VnodeDOM<IPageAttrs, this>) {
     super.onbeforeupdate(vnode);
     const s = app.parley;
     if (!s) return;
@@ -85,13 +117,13 @@ export default class InboxPage extends Page {
     }
   }
 
-  onremove(vnode) {
+  onremove(vnode: Mithril.VnodeDOM<IPageAttrs, this>) {
     super.onremove(vnode);
     if (app.parley) app.parley.pageConversation = null;
   }
 
-  fetch(filter, quiet = false, more = false) {
-    const list = (this.lists[filter] ||= { items: [], hasMore: false, loading: true });
+  fetch(filter: string, quiet = false, more = false) {
+    const list: ListState = (this.lists[filter] ||= { items: [], hasMore: false, loading: true });
     if (!quiet) list.loading = true;
     const offset = more ? list.items.length : 0;
 
@@ -104,7 +136,7 @@ export default class InboxPage extends Page {
     });
   }
 
-  setFilter(filter) {
+  setFilter(filter: string) {
     this.filter = filter;
     this.found = null;
     if (filter === 'reports') return this.openReports();
@@ -145,7 +177,7 @@ export default class InboxPage extends Page {
     return (
       <div className="ParleyPage">
         <div className="container">
-          <div className="pl-shell" oncreate={(v) => this.measure(v.dom)} onupdate={(v) => this.measure(v.dom)}>
+          <div className="pl-shell" oncreate={(v: Mithril.VnodeDOM) => this.measure(v.dom)} onupdate={(v: Mithril.VnodeDOM) => this.measure(v.dom)}>
             <div className={'Parley pl-messenger' + (this.selected ? ' has-selected' : '') + (showDetails ? ' has-details' : '')}>
               <aside className="pl-list">{this.listColumn()}</aside>
               <main className="pl-chat">
@@ -171,7 +203,7 @@ export default class InboxPage extends Page {
               {/* 🚨 Its own wrapper: a keyed child beside unkeyed ones, or a
                 null hole in a keyed list, is the Mithril mixed-keys throw. */}
               <div className="pl-details-slot">
-                {showDetails ? <Details key={'d' + this.selected} id={this.selected} onclose={() => this.toggleDetails(false)} /> : null}
+                {showDetails ? <Details key={'d' + this.selected} id={this.selected!} onclose={() => this.toggleDetails(false)} /> : null}
               </div>
             </div>
           </div>
@@ -180,7 +212,7 @@ export default class InboxPage extends Page {
     );
   }
 
-  measure(el) {
+  measure(el: Element) {
     const width = el.clientWidth;
     if (width !== this.width) {
       this.width = width;
@@ -189,7 +221,7 @@ export default class InboxPage extends Page {
     }
   }
 
-  toggleDetails(open) {
+  toggleDetails(open?: boolean) {
     this.details = open ?? !(this.details === null ? (this.width || 0) >= 1180 : this.details);
     try {
       localStorage.setItem('parley:details', this.details ? '1' : '0');
@@ -198,7 +230,7 @@ export default class InboxPage extends Page {
     }
   }
 
-  compose(members = null) {
+  compose(members: Person[] | null = null) {
     app.modal.show(() => import('./NewConversationModal'), members ? { conversationId: this.selected, members } : {});
   }
 
@@ -219,7 +251,7 @@ export default class InboxPage extends Page {
           onclick={() => this.compose()}
         />
       </div>,
-      <form className="pl-list-search" role="search" onsubmit={(e) => this.searchMessages(e)}>
+      <form className="pl-list-search" role="search" onsubmit={(e: SubmitEvent) => this.searchMessages(e)}>
         {Icons.search()}
         <input
           className="FormControl"
@@ -227,8 +259,8 @@ export default class InboxPage extends Page {
           placeholder={extractText(t('search'))}
           aria-label={extractText(t('search'))}
           value={this.query}
-          oninput={(e) => {
-            this.query = e.target.value;
+          oninput={(e: InputEvent) => {
+            this.query = (e.target as HTMLInputElement).value;
             if (!this.query.trim()) this.found = null;
           }}
         />
@@ -283,18 +315,26 @@ export default class InboxPage extends Page {
     const q = this.query.trim().toLowerCase();
     // What the list holds, with each conversation as this page knows it now.
     const items = list.items
-      .map((c) => s.conv(c.id)?.summary || c)
-      .filter((c) => this.stillBelongs(c))
-      .filter((c) => !q || convTitle(c).toLowerCase().includes(q) || (c.participants || []).some((p) => p.username.toLowerCase().includes(q)))
-      .sort((a, b) => new Date(b.lastMessageAt || 0) - new Date(a.lastMessageAt || 0));
+      .map((c: ConversationSummary) => s.conv(c.id)?.summary || c)
+      .filter((c: ConversationSummary) => this.stillBelongs(c))
+      .filter(
+        (c: ConversationSummary) =>
+          !q || convTitle(c).toLowerCase().includes(q) || (c.participants || []).some((p: Person) => p.username.toLowerCase().includes(q))
+      )
+      // Dates subtract as their times.
+      .sort((a: ConversationSummary, b: ConversationSummary) => +new Date(b.lastMessageAt || 0) - +new Date(a.lastMessageAt || 0));
 
     return [
       this.filter === 'all' && !q ? this.roomsList() : null,
       this.filter === 'all' && !q && s.rooms.length ? <div className="pl-list-sec">{t('direct')}</div> : null,
       this.filter === 'requests' && items.length ? <p className="pl-list-note">{t('requests_note')}</p> : null,
-      items.length ? items.map((c) => this.item(c)) : <p className="pl-list-empty">{q ? t('no_matches') : t('empty_' + this.filter)}</p>,
+      items.length ? (
+        items.map((c: ConversationSummary) => this.item(c))
+      ) : (
+        <p className="pl-list-empty">{q ? t('no_matches') : t('empty_' + this.filter)}</p>
+      ),
       q.length >= 2 ? (
-        <button className="pl-search-all" onclick={(e) => this.searchMessages(e)}>
+        <button className="pl-search-all" onclick={(e: MouseEvent) => this.searchMessages(e)}>
           {Icons.search()} {t('search_messages_for', { q: this.query.trim() })}
         </button>
       ) : null,
@@ -307,7 +347,7 @@ export default class InboxPage extends Page {
   }
 
   /** Filed somewhere else since the list was fetched: leave it out until the refetch. */
-  stillBelongs(c) {
+  stillBelongs(c: ConversationSummary) {
     switch (this.filter) {
       case 'requests':
         return !!c.request;
@@ -331,13 +371,13 @@ export default class InboxPage extends Page {
       <div className="pl-list-sec">{t('rooms')}</div>,
       // Conferences, then the team rooms you have joined, each under its own.
       s.rooms
-        .filter((r) => !r.parentId)
-        .flatMap((p) => [p, ...s.rooms.filter((c) => c.parentId === p.id)])
-        .map((r) => (
+        .filter((r: Room) => !r.parentId)
+        .flatMap((p: Room) => [p, ...s.rooms.filter((c: Room) => c.parentId === p.id)])
+        .map((r: Room) => (
           <a
             className={'pl-item' + (r.parentId ? ' child' : '') + (r.id === this.selected ? ' active' : '') + (r.unread ? ' unread' : '')}
             href={app.route('parley.conversation', { id: r.id })}
-            onclick={(e) => {
+            onclick={(e: MouseEvent) => {
               e.preventDefault();
               const go = () => m.route.set(app.route('parley.conversation', { id: r.id }));
               r.joined ? go() : app.parley.openRoom(r.id).then(go);
@@ -358,10 +398,10 @@ export default class InboxPage extends Page {
     ];
   }
 
-  item(c) {
+  item(c: ConversationSummary) {
     const s = app.parley;
     const last = c.lastMessage;
-    const mine = last && last.userId === Number(app.session.user.id());
+    const mine = last && last.userId === Number(app.session.user!.id());
     const unread = s.unread[c.id] ?? c.unread ?? 0;
     const draft = c.id !== this.selected && s.drafts[c.id];
     const when = last
@@ -375,7 +415,7 @@ export default class InboxPage extends Page {
         <a
           className="pl-item-link"
           href={app.route('parley.conversation', { id: c.id })}
-          onclick={(e) => {
+          onclick={(e: MouseEvent) => {
             e.preventDefault();
             m.route.set(app.route('parley.conversation', { id: c.id }));
           }}
@@ -404,7 +444,7 @@ export default class InboxPage extends Page {
     );
   }
 
-  itemMenu(c) {
+  itemMenu(c: ConversationSummary) {
     const s = app.parley;
     const labels = s.config.labels || [];
 
@@ -433,7 +473,7 @@ export default class InboxPage extends Page {
         </Button>
         <Separator />
         <div className="pl-label-pick" role="group" aria-label={extractText(t('label'))}>
-          {labels.map((l) => (
+          {labels.map((l: string) => (
             <button
               className={'pl-label pl-label--' + l + (c.label === l ? ' on' : '')}
               aria-label={extractText(t('label_' + l))}
@@ -453,11 +493,11 @@ export default class InboxPage extends Page {
 
   // ── Searching messages ────────────────────────────────────────────────────
 
-  searchMessages(e, extra = {}) {
+  searchMessages(e: Event | null, extra: Partial<Found> = {}) {
     e && e.preventDefault();
     const q = this.query.trim();
     this.found = { ...(this.found || {}), ...extra, q, loading: true };
-    const f = this.found;
+    const f: Found = this.found;
     if (q.length < 2 && !f.type && !f.from && !f.since && !f.until) {
       this.found = q ? this.found : null;
       if (this.found) this.found.loading = false;
@@ -468,17 +508,18 @@ export default class InboxPage extends Page {
       if (this.found !== f) return;
       f.loading = false;
       f.messages = r.messages;
-      f.conversations = Object.fromEntries(r.conversations.map((c) => [c.id, c]));
+      f.conversations = Object.fromEntries(r.conversations.map((c: ConversationSummary) => [c.id, c]));
       m.redraw();
     });
   }
 
   searchResults() {
-    const f = this.found;
+    // Drawn only while a search is open.
+    const f = this.found!;
     const s = app.parley;
     // Everyone this page knows, to search by.
-    const people = new Map();
-    [...s.convs.values()].forEach((c) => (c.summary.participants || []).forEach((p) => people.set(p.id, p)));
+    const people = new Map<number, Person>();
+    [...s.convs.values()].forEach((c) => (c.summary.participants || []).forEach((p: Person) => people.set(p.id, p)));
 
     return [
       <div className="pl-search-filters">
@@ -486,7 +527,7 @@ export default class InboxPage extends Page {
           className="FormControl"
           aria-label={extractText(t('search_type'))}
           value={f.type || ''}
-          onchange={(e) => this.searchMessages(null, { type: e.target.value || null })}
+          onchange={(e: Event) => this.searchMessages(null, { type: (e.target as HTMLSelectElement).value || null })}
         >
           <option value="">{t('type_any')}</option>
           {['text', 'media', 'voice', 'file', 'link'].map((x) => (
@@ -497,13 +538,13 @@ export default class InboxPage extends Page {
           className="FormControl"
           aria-label={extractText(t('search_from'))}
           value={f.from || ''}
-          onchange={(e) => this.searchMessages(null, { from: Number(e.target.value) || null })}
+          onchange={(e: Event) => this.searchMessages(null, { from: Number((e.target as HTMLSelectElement).value) || null })}
         >
           <option value="">{t('from_anyone')}</option>
-          <option value={app.session.user.id()}>{t('from_me')}</option>
+          <option value={app.session.user!.id()}>{t('from_me')}</option>
           {[...people.values()]
-            .sort((a, b) => a.displayName.localeCompare(b.displayName))
-            .map((p) => (
+            .sort((a: Person, b: Person) => a.displayName.localeCompare(b.displayName))
+            .map((p: Person) => (
               <option value={p.id}>{p.displayName}</option>
             ))}
         </select>
@@ -513,7 +554,7 @@ export default class InboxPage extends Page {
             type="date"
             className="FormControl"
             value={f.since || ''}
-            onchange={(e) => this.searchMessages(null, { since: e.target.value || null })}
+            onchange={(e: Event) => this.searchMessages(null, { since: (e.target as HTMLInputElement).value || null })}
           />
         </label>
         <label>
@@ -522,7 +563,7 @@ export default class InboxPage extends Page {
             type="date"
             className="FormControl"
             value={f.until || ''}
-            onchange={(e) => this.searchMessages(null, { until: e.target.value || null })}
+            onchange={(e: Event) => this.searchMessages(null, { until: (e.target as HTMLInputElement).value || null })}
           />
         </label>
         <Button className="Button Button--link" onclick={() => (this.found = null)}>
@@ -534,14 +575,14 @@ export default class InboxPage extends Page {
       ) : !f.messages || !f.messages.length ? (
         <p className="pl-list-empty">{t('no_results')}</p>
       ) : (
-        f.messages.map((msg) => {
-          const c = f.conversations[msg.conversationId];
+        f.messages.map((msg: Message) => {
+          const c = f.conversations![msg.conversationId];
           if (!c) return null;
           return (
             <a
               className="pl-item pl-hit"
               href={app.route('parley.conversation', { id: c.id })}
-              onclick={(e) => {
+              onclick={(e: MouseEvent) => {
                 e.preventDefault();
                 // Already open: jump in place; otherwise open it there.
                 c.id === this.selected ? s.load(c.id, { around: msg.id }) : s.openAt(c.id, msg.id);
@@ -581,7 +622,7 @@ export default class InboxPage extends Page {
     if (!this.reports) return <LoadingIndicator />;
     if (!this.reports.length) return <p className="pl-list-empty">{t('no_reports')}</p>;
 
-    return this.reports.map((r) => (
+    return this.reports.map((r: Report) => (
       <div className="pl-report-card">
         <div className="pl-report-meta">
           {t('reported_by', { reporter: r.reporter?.displayName || '?', reported: r.reported?.displayName || '?' })} · {humanTime(r.createdAt)}
@@ -611,13 +652,14 @@ export default class InboxPage extends Page {
   }
 }
 
-function moreIcon(filter) {
-  return {
+function moreIcon(filter: string) {
+  const icons: Record<string, string> = {
     mentions: 'fas fa-at',
     pinned: 'fas fa-thumbtack',
     starred: 'fas fa-star',
     muted: 'fas fa-bell-slash',
     archived: 'fas fa-archive',
     requests: 'fas fa-inbox',
-  }[filter];
+  };
+  return icons[filter];
 }

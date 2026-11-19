@@ -1,14 +1,29 @@
 import stringToColor from 'flarum/common/utils/stringToColor';
 import { initials } from '../util';
+import type { ConversationSummary, Person } from '../types';
+
+/** Whoever is drawn: a person card, or just the names and picture of one. */
+export interface AvatarPerson {
+  displayName?: string;
+  username?: string;
+  avatarUrl?: string | null;
+  status?: string;
+}
+
+export interface AvatarOptions {
+  className?: string;
+  dot?: boolean;
+  status?: string;
+}
 
 /**
  * A round avatar with an optional status dot. The member's own picture when
  * they have one; otherwise their initials on the colour Flarum itself gives
  * that name, so a face here matches the same face in the discussion list.
  */
-export default function Avatar(person, size = 34, opts = {}) {
+export default function Avatar(person: AvatarPerson, size = 34, opts: AvatarOptions = {}) {
   const name = person.displayName || person.username || '?';
-  const style = { '--s': size + 'px', '--size': size + 'px' };
+  const style: Record<string, string> = { '--s': size + 'px', '--size': size + 'px' };
   if (!person.avatarUrl) style['--avatar-bg'] = '#' + stringToColor(person.username || name);
 
   return (
@@ -23,7 +38,7 @@ export default function Avatar(person, size = 34, opts = {}) {
  * A conversation's face: the other person, or a group's photo, or — for a
  * group without one — two of its members, one over the other.
  */
-export function Face(summary, size = 40, presenceOf = null) {
+export function Face(summary: ConversationSummary, size = 40, presenceOf: ((userId: number) => Partial<Person> | null | undefined) | null = null) {
   if (summary.isGroup) {
     if (summary.imageUrl) {
       return (
@@ -42,7 +57,7 @@ export function Face(summary, size = 40, presenceOf = null) {
     );
   }
 
-  const peer = (summary.participants || [])[0] || { displayName: '?' };
-  const live = presenceOf ? { ...peer, ...presenceOf(peer.id) } : peer;
+  const peer: Partial<Person> = (summary.participants || [])[0] || { displayName: '?' };
+  const live = presenceOf ? { ...peer, ...presenceOf(peer.id as number) } : peer;
   return Avatar(live, size, { dot: !!presenceOf });
 }

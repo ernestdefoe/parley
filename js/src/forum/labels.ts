@@ -1,5 +1,9 @@
 import app from 'flarum/forum/app';
 import extractText from 'flarum/common/utils/extractText';
+import type { ConversationSummary, Message } from './types';
+
+/** What a one-line preview reads: a message, or a report's snapshot of one. */
+type PreviewMessage = Pick<Message, 'type' | 'body'> & Partial<Pick<Message, 'deleted' | 'meta' | 'userId' | 'author'>>;
 
 /*
  * How a conversation and a message read in a line of text: the list, the
@@ -7,10 +11,14 @@ import extractText from 'flarum/common/utils/extractText';
  * the same way.
  */
 
-const t = (key, params) => extractText(app.translator.trans('ernestdefoe-parley.forum.' + key, params));
+const t = (key: string, params?: Record<string, unknown>): string =>
+  extractText(params ? app.translator.trans('ernestdefoe-parley.forum.' + key, params) : app.translator.trans('ernestdefoe-parley.forum.' + key));
 
 /** A group's own name, or its people's names; a room's name; the other person. */
-export function convTitle(summary) {
+/** What a conversation title needs: a full summary, or the room entries a picker builds itself. */
+type Titled = Pick<ConversationSummary, 'type' | 'participants'> & Partial<Pick<ConversationSummary, 'room' | 'title' | 'isGroup' | 'memberCount'>>;
+
+export function convTitle(summary: Titled | null | undefined): string {
   if (!summary) return '';
   if (summary.type === 'room') return (summary.room && summary.room.name) || summary.title || '';
   if (summary.isGroup) {
@@ -23,7 +31,7 @@ export function convTitle(summary) {
 }
 
 /** "Photo", "Voice message · 0:12", the words — what a message says in one line. */
-export function messagePreview(msg) {
+export function messagePreview(msg: PreviewMessage | null | undefined): string {
   if (!msg) return '';
   if (msg.deleted) return t('window.deleted');
   switch (msg.type) {
@@ -45,7 +53,7 @@ export function messagePreview(msg) {
 }
 
 /** "Ana added Ben and Cy" — a group's own news, from where the reader sits. */
-export function systemLine(msg) {
+export function systemLine(msg: PreviewMessage): string {
   const meta = msg.meta || {};
   const me = app.session.user && Number(app.session.user.id());
   const actor = msg.userId === me ? t('system.you') : (msg.author && msg.author.displayName) || '?';
@@ -75,13 +83,13 @@ export function systemLine(msg) {
 }
 
 /** 0:07, 12:34 */
-export function duration(seconds) {
+export function duration(seconds: unknown): string {
   const s = Math.max(0, Math.round(Number(seconds) || 0));
   return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
 }
 
 /** 1.2 MB, 340 KB */
-export function fileSize(bytes) {
+export function fileSize(bytes: unknown): string {
   const n = Number(bytes) || 0;
   if (n >= 1048576) return (n / 1048576).toFixed(n >= 10485760 ? 0 : 1) + ' MB';
   return Math.max(1, Math.round(n / 1024)) + ' KB';

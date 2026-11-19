@@ -5,7 +5,7 @@ import Icon from 'flarum/common/components/Icon';
  * Flarum's Icon component: a theme or a Font Awesome kit that changes the
  * forum's icons changes these too. Same calls as before — `Icons.x()`.
  */
-const icon = (name) => () => <Icon name={name} />;
+const icon = (name: string) => () => <Icon name={name} />;
 
 export default {
   phone: icon('fas fa-phone'),

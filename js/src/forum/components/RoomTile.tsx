@@ -1,5 +1,7 @@
 import Icon from 'flarum/common/components/Icon';
+import type Mithril from 'mithril';
 import { readableOn } from '../util';
+import type { RoomCard } from '../types';
 
 /**
  * A room's face. Its own logo if one was uploaded — on a white badge in both
@@ -10,9 +12,9 @@ import { readableOn } from '../util';
  * The icon goes through Flarum's Icon component, exactly as the tag pages draw
  * it, so a Font Awesome kit treats it the same way everywhere.
  */
-export default function RoomTile(room, size = 36) {
-  const style = { '--s': size + 'px' };
-  let face = '#';
+export default function RoomTile(room: Partial<RoomCard> | null | undefined, size = 36) {
+  const style: Record<string, string> = { '--s': size + 'px' };
+  let face: Mithril.Children = '#';
   let className = 'pl-room-tile';
 
   if (room && room.imageUrl) {

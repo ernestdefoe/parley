@@ -5,7 +5,7 @@ import { Face } from './Avatar';
 import RoomTile from './RoomTile';
 import { convTitle } from '../labels';
 
-const t = (key, params) => app.translator.trans('ernestdefoe-parley.forum.window.' + key, params);
+const t = (key: string, params: Record<string, unknown> = {}) => app.translator.trans('ernestdefoe-parley.forum.window.' + key, params);
 
 /** Conversations folded down to a face, stacked up the right edge. */
 export default class Heads extends Component {
@@ -15,10 +15,10 @@ export default class Heads extends Component {
     return (
       <div className={'pl-heads' + (s.open.length ? ' above' : '')}>
         {s.heads
-          .filter((id) => s.conv(id))
-          .map((id) => {
+          .filter((id: number) => s.conv(id))
+          .map((id: number) => {
             // Filtered first: a keyed list must not start with a null hole.
-            const conv = s.conv(id);
+            const conv = s.conv(id)!;
             const name = convTitle(conv.summary);
             const unread = s.unread[id] || 0;
             return (
@@ -31,7 +31,7 @@ export default class Heads extends Component {
                   className="pl-x"
                   role="button"
                   aria-label={extractText(t('close'))}
-                  onclick={(e) => {
+                  onclick={(e: MouseEvent) => {
                     e.stopPropagation();
                     s.close(id);
                   }}

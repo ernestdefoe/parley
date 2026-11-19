@@ -1,5 +1,6 @@
 import app from 'flarum/forum/app';
-import Component from 'flarum/common/Component';
+import Component, { type ComponentAttrs } from 'flarum/common/Component';
+import type Mithril from 'mithril';
 import ItemList from 'flarum/common/utils/ItemList';
 import extractText from 'flarum/common/utils/extractText';
 import { Face } from './Avatar';
@@ -8,12 +9,32 @@ import Icons from '../icons';
 import api from '../api';
 import { presenceLine } from './activity';
 import { convTitle, messagePreview } from '../labels';
+import type { ConvEntry as Conv, Message, Person } from '../types';
 
-const t = (key, params) => app.translator.trans('ernestdefoe-parley.forum.window.' + key, params);
+/** What the composer's bottom needs, worked out once in view(). */
+interface BottomState {
+  canPost: boolean | undefined;
+  replying: Message | undefined;
+  editing: Message | undefined;
+  reporting: Message | null;
+  title: string | undefined;
+}
+
+export interface ChatWindowAttrs extends ComponentAttrs {
+  /** The conversation's id. */
+  id: number;
+  /** Drawn full size on the messages page, not as a docked mini window. */
+  page?: boolean;
+  onback?: () => void;
+  ondetails?: () => void;
+  detailsOpen?: boolean;
+}
+
+const t = (key: string, params: Record<string, unknown> = {}) => app.translator.trans('ernestdefoe-parley.forum.window.' + key, params);
 
 /** The messages and the composer, fetched once, the first time a window opens. */
-let Body = null;
-let loading = null;
+let Body: typeof import('./ChatBody') | null = null;
+let loading: Promise<void> | null = null;
 function body() {
   if (!Body && !loading) {
     loading = import('./ChatBody').then((mod) => {
@@ -32,8 +53,13 @@ function body() {
  * Parley Calls adds its buttons through headerItems() and a room's voice bar
  * through bodyTopItems(); both stay where they were.
  */
-export default class ChatWindow extends Component {
-  oninit(vnode) {
+export default class ChatWindow<Attrs extends ChatWindowAttrs = ChatWindowAttrs> extends Component<Attrs> {
+  reportReason!: string;
+  searching!: boolean;
+  search!: { q: string; results: Message[] | null; index: number };
+  pinIndex!: number;
+
+  oninit(vnode: Mithril.Vnode<Attrs, this>) {
     super.oninit(vnode);
     this.reportReason = '';
     this.searching = false;
@@ -60,28 +86,30 @@ export default class ChatWindow extends Component {
 
     const summary = conv.summary;
     const isRoom = summary.type === 'room';
+    // Set whenever isRoom is, so `room!` below is only read for a room.
     const room = isRoom ? { ...(summary.room || {}), ...(s.room(id) || {}) } : null;
     const peer = summary.participants[0] || { displayName: '?' };
     const live = { ...peer, ...s.presenceOf(peer.id) };
-    const title = isRoom ? room.name : convTitle(summary);
+    const title = isRoom ? room!.name : convTitle(summary);
     const status = isRoom
       ? [
-          room.online ? extractText(app.translator.trans('ernestdefoe-parley.forum.rooms.online_count', { count: room.online })) : null,
-          room.members !== undefined
-            ? extractText(app.translator.trans('ernestdefoe-parley.forum.rooms.members_count', { count: room.members }))
+          room!.online ? extractText(app.translator.trans('ernestdefoe-parley.forum.rooms.online_count', { count: room!.online })) : null,
+          room!.members !== undefined
+            ? extractText(app.translator.trans('ernestdefoe-parley.forum.rooms.members_count', { count: room!.members }))
             : null,
         ]
           .filter(Boolean)
           .join(' · ') ||
-        room.description ||
+        room!.description ||
         ''
       : summary.isGroup
         ? extractText(t('members_count', { count: summary.memberCount || summary.participants.length + 1 }))
         : presenceLine(live);
-    const canPost = !isRoom || !room.readonly || s.config.canModerate;
+    const canPost = !isRoom || !room!.readonly || s.config.canModerate;
     const replying = s.replyTo[id];
     const editing = s.editing[id];
     const reporting = s.reporting && s.reporting.conversationId === id ? s.reporting.message : null;
+    let Chat: typeof Body = null;
 
     return (
       <section
@@ -107,14 +135,14 @@ export default class ChatWindow extends Component {
           {this.headerRows(conv, live, page)}
         </div>
 
-        {min ? null : body() ? (
+        {min ? null : (Chat = body()) ? (
           [
             // 🚨 Its own wrapper: as bars come and go here (pins, search,
             // a room's voice bar) the message list must keep its place,
             // or Mithril rebuilds it and an open menu and the scroll
             // position are lost.
             <div className="pl-w-top">{this.bodyTopItems(conv).toArray()}</div>,
-            <Body.MessageList conv={conv} />,
+            <Chat.MessageList conv={conv} />,
             this.bottom(conv, { canPost, replying, editing, reporting, title }),
           ]
         ) : (
@@ -124,9 +152,11 @@ export default class ChatWindow extends Component {
     );
   }
 
-  bottom(conv, { canPost, replying, editing, reporting, title }) {
+  bottom(conv: Conv, { canPost, replying, editing, reporting, title }: BottomState) {
     const s = app.parley;
     const id = conv.summary.id;
+    // Only drawn once the ChatBody chunk is in (view() checks).
+    const Chat = Body!;
 
     return [
       conv.summary.request ? this.requestBar(conv) : null,
@@ -137,7 +167,7 @@ export default class ChatWindow extends Component {
             {editing
               ? t('editing')
               : t('replying_to', {
-                  text: replying.type === 'text' ? replying.body : messagePreview(replying),
+                  text: replying!.type === 'text' ? replying!.body : messagePreview(replying!),
                 })}
           </span>
           <button
@@ -153,7 +183,7 @@ export default class ChatWindow extends Component {
         </div>
       ) : null,
       canPost ? (
-        <Body.Composer conv={conv} title={title} />
+        <Chat.Composer conv={conv} title={title} />
       ) : (
         <div className="pl-readonly">{app.translator.trans('ernestdefoe-parley.forum.rooms.readonly_note')}</div>
       ),
@@ -167,11 +197,11 @@ export default class ChatWindow extends Component {
    * sits on a row of its own under the name. The messages page has the
    * room for one row.
    */
-  headerRows(conv, live, page) {
+  headerRows(conv: Conv, live: Partial<Person>, page: boolean) {
     const items = this.headerItems(conv, live);
     if (page) return items.toArray();
 
-    const controls = new ItemList();
+    const controls = new ItemList<Mithril.Children>();
     ['minimise', 'close'].forEach((key) => {
       if (items.has(key)) {
         controls.add(key, items.get(key), items.getPriority(key));
@@ -186,12 +216,19 @@ export default class ChatWindow extends Component {
    * The header buttons. Parley Calls adds voice and video in front of these,
    * at priority 100 and 90.
    */
-  headerItems(conv, live) {
+  headerItems(conv: Conv, live: Partial<Person>): ItemList<Mithril.Children> {
     const s = app.parley;
     const id = conv.summary.id;
     const page = !!this.attrs.page;
-    const items = new ItemList();
-    const button = (key, icon, label, onclick, priority, extra = {}) =>
+    const items = new ItemList<Mithril.Children>();
+    const button = (
+      key: string,
+      icon: Mithril.Children,
+      label: Mithril.Children,
+      onclick: () => unknown,
+      priority: number,
+      extra: { on?: boolean; pressed?: string } = {}
+    ) =>
       items.add(
         key,
         <button
@@ -233,8 +270,8 @@ export default class ChatWindow extends Component {
    * Drawn between the header and the messages: the pinned bar and the
    * search bar. Parley Calls puts a room's voice bar here too.
    */
-  bodyTopItems(conv) {
-    const items = new ItemList();
+  bodyTopItems(conv: Conv): ItemList<Mithril.Children> {
+    const items = new ItemList<Mithril.Children>();
     if (this.searching) items.add('search', this.searchBar(conv), 20);
     if (conv.summary.pinCount) items.add('pins', this.pinBar(conv), 10);
     return items;
@@ -242,7 +279,7 @@ export default class ChatWindow extends Component {
 
   // ── Pins ──────────────────────────────────────────────────────────────────
 
-  pinBar(conv) {
+  pinBar(conv: Conv) {
     const s = app.parley;
     const id = conv.summary.id;
 
@@ -279,8 +316,8 @@ export default class ChatWindow extends Component {
   }
 
   /** Scroll to a message, fetching the page around it when it is not drawn. */
-  goTo(conv, messageId) {
-    if (conv.messages.some((x) => x.id === messageId)) {
+  goTo(conv: Conv, messageId: number) {
+    if (conv.messages.some((x: Message) => x.id === messageId)) {
       conv.jumpTo = messageId;
       m.redraw();
     } else {
@@ -296,9 +333,9 @@ export default class ChatWindow extends Component {
     if (this.searching) setTimeout(() => document.getElementById(`Parley-find-${this.attrs.id}`)?.focus(), 0);
   }
 
-  searchBar(conv) {
+  searchBar(conv: Conv) {
     const r = this.search.results;
-    const run = (e) => {
+    const run = (e: SubmitEvent) => {
       e.preventDefault();
       const q = this.search.q.trim();
       if (q.length < 2) return;
@@ -309,7 +346,7 @@ export default class ChatWindow extends Component {
         m.redraw();
       });
     };
-    const step = (d) => {
+    const step = (d: number) => {
       if (!r || !r.length) return;
       this.search.index = (this.search.index + d + r.length) % r.length;
       this.goTo(conv, r[this.search.index].id);
@@ -323,11 +360,11 @@ export default class ChatWindow extends Component {
           className="FormControl"
           placeholder={extractText(t('search_in_chat'))}
           value={this.search.q}
-          oninput={(e) => {
-            this.search.q = e.target.value;
+          oninput={(e: InputEvent) => {
+            this.search.q = (e.target as HTMLInputElement).value;
             this.search.results = null;
           }}
-          onkeydown={(e) => {
+          onkeydown={(e: KeyboardEvent) => {
             // 🚨 Not `e.key === 'Escape' && …`: a handler that returns false
             // makes Mithril cancel the key, and nothing could be typed.
             if (e.key === 'Escape') this.toggleSearch();
@@ -357,7 +394,7 @@ export default class ChatWindow extends Component {
   // ── Requests ──────────────────────────────────────────────────────────────
 
   /** A first message from someone you do not follow: accept, delete or block. */
-  requestBar(conv) {
+  requestBar(conv: Conv) {
     const s = app.parley;
     const id = conv.summary.id;
     const peer = conv.summary.participants[0] || {};
@@ -384,7 +421,7 @@ export default class ChatWindow extends Component {
     );
   }
 
-  reportBar(message) {
+  reportBar(message: Message) {
     const s = app.parley;
     const close = () => {
       s.reporting = null;
@@ -394,7 +431,7 @@ export default class ChatWindow extends Component {
     return (
       <form
         className="pl-report"
-        onsubmit={(e) => {
+        onsubmit={(e: SubmitEvent) => {
           e.preventDefault();
           api.report(message.id, this.reportReason || null).then(() => {
             close();
@@ -409,7 +446,7 @@ export default class ChatWindow extends Component {
           className="FormControl"
           placeholder={extractText(t('report_reason'))}
           maxlength="500"
-          oninput={(e) => (this.reportReason = e.target.value)}
+          oninput={(e: InputEvent) => (this.reportReason = (e.target as HTMLInputElement).value)}
         />
         <div className="pl-report-actions">
           <button type="button" className="Button" onclick={close}>

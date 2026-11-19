@@ -1,13 +1,21 @@
 import app from 'flarum/forum/app';
 import Component from 'flarum/common/Component';
+import type { ComponentAttrs } from 'flarum/common/Component';
 import extractText from 'flarum/common/utils/extractText';
 import RoomTile from './RoomTile';
 import Icons from '../icons';
+import type { Room } from '../types';
 
-const t = (key, params) => app.translator.trans('ernestdefoe-parley.forum.rooms.' + key, params);
+const t = (key: string, params: Record<string, unknown> = {}) => app.translator.trans('ernestdefoe-parley.forum.rooms.' + key, params);
 
 /** One room in the rail: its tile, its name, who is in there now. */
-export default class RoomRow extends Component {
+export interface RoomRowAttrs extends ComponentAttrs {
+  /** voiceCount is set by Parley Calls. */
+  room: Room & { voiceCount?: number };
+  child?: boolean;
+}
+
+export default class RoomRow extends Component<RoomRowAttrs> {
   view() {
     const r = this.attrs.room;
     const s = app.parley;
@@ -23,7 +31,7 @@ export default class RoomRow extends Component {
         role="button"
         aria-label={extractText(t('open', { name: r.name }))}
         onclick={open}
-        onkeydown={(e) => {
+        onkeydown={(e: KeyboardEvent) => {
           if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) {
             e.preventDefault();
             open();
@@ -55,7 +63,7 @@ export default class RoomRow extends Component {
             aria-expanded={String(isOpen)}
             aria-label={extractText(t(isOpen ? 'hide_teams' : 'show_teams', { count: r.children, name: r.name }))}
             title={extractText(t(isOpen ? 'hide_teams' : 'show_teams', { count: r.children, name: r.name }))}
-            onclick={(e) => {
+            onclick={(e: MouseEvent) => {
               e.stopPropagation();
               s.toggleRoomGroup(r.id);
             }}

@@ -1,15 +1,16 @@
 import app from 'flarum/forum/app';
-import Component from 'flarum/common/Component';
+import Component, { type ComponentAttrs } from 'flarum/common/Component';
+import type Mithril from 'mithril';
 import extractText from 'flarum/common/utils/extractText';
 
-const t = (key) => app.translator.trans('ernestdefoe-parley.forum.emoji.' + key);
+const t = (key: string) => app.translator.trans('ernestdefoe-parley.forum.emoji.' + key);
 
 /*
  * A small picker of the emoji people actually send, by group. Loaded the
  * first time the smiley is pressed; nothing of it is in the page before.
  * Anything not here can still be typed with the system's own emoji keyboard.
  */
-const GROUPS = {
+const GROUPS: Record<string, string> = {
   smileys:
     '😀 😃 😄 😁 😆 😅 😂 🤣 🙂 🙃 😉 😊 😇 🥰 😍 🤩 😘 😗 😋 😛 😜 🤪 😝 🤑 🤗 🤭 🤫 🤔 🤐 🤨 😐 😑 😶 😏 😒 🙄 😬 😌 😔 😪 😴 😷 🤒 🤕 🤢 🤮 🥵 🥶 😵 🤯 🤠 🥳 😎 🤓 🧐 😕 😟 🙁 😮 😯 😲 😳 🥺 😦 😧 😨 😰 😥 😢 😭 😱 😖 😣 😞 😓 😩 😫 🥱 😤 😡 😠 🤬 😈 💀 💩 🤡 👻 👽 🤖',
   people:
@@ -22,25 +23,37 @@ const GROUPS = {
     '⚽ 🏀 🏈 ⚾ 🎾 🏐 🏉 🎱 🏓 🏸 🥊 ⛳ 🎣 🎿 🏂 🏋️ 🚴 🏊 🎮 🕹️ 🎲 🎯 🎳 🎸 🎹 🎺 🎻 🥁 🎤 🎧 🎬 🎨 📷 💻 📱 ⌚ 💡 📚 ✏️ 📌 📎 🔑 🔒 🚗 ✈️ 🚀 🏠 ⏰ ✅ ❌ ❓ ❗',
 };
 
-export default class EmojiPicker extends Component {
-  oninit(vnode) {
+export interface EmojiPickerAttrs extends ComponentAttrs {
+  /** Called with the emoji pressed. */
+  onpick: (emoji: string) => void;
+  /** Called when a press lands anywhere outside the picker. */
+  onclose: () => void;
+}
+
+export default class EmojiPicker extends Component<EmojiPickerAttrs> {
+  group!: string;
+  away?: (e: PointerEvent) => void;
+
+  oninit(vnode: Mithril.Vnode<EmojiPickerAttrs, this>) {
     super.oninit(vnode);
     this.group = 'smileys';
   }
 
-  oncreate(vnode) {
+  oncreate(vnode: Mithril.VnodeDOM<EmojiPickerAttrs, this>) {
     super.oncreate(vnode);
     // Clicking anywhere else closes it.
-    this.away = (e) => {
-      if (!vnode.dom.contains(e.target) && !e.target.closest('.pl-emoji-btn')) this.attrs.onclose();
+    const away = (e: PointerEvent) => {
+      const target = e.target as Element;
+      if (!vnode.dom.contains(target) && !target.closest('.pl-emoji-btn')) this.attrs.onclose();
       m.redraw();
     };
-    setTimeout(() => document.addEventListener('pointerdown', this.away), 0);
+    this.away = away;
+    setTimeout(() => document.addEventListener('pointerdown', away), 0);
   }
 
-  onremove(vnode) {
+  onremove(vnode: Mithril.VnodeDOM<EmojiPickerAttrs, this>) {
     super.onremove(vnode);
-    document.removeEventListener('pointerdown', this.away);
+    if (this.away) document.removeEventListener('pointerdown', this.away);
   }
 
   view() {

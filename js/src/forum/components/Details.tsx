@@ -1,5 +1,6 @@
 import app from 'flarum/forum/app';
-import Component from 'flarum/common/Component';
+import Component, { type ComponentAttrs } from 'flarum/common/Component';
+import type Mithril from 'mithril';
 import Button from 'flarum/common/components/Button';
 import LoadingIndicator from 'flarum/common/components/LoadingIndicator';
 import humanTime from 'flarum/common/utils/humanTime';
@@ -8,10 +9,11 @@ import Avatar, { Face } from './Avatar';
 import RoomTile from './RoomTile';
 import Icons from '../icons';
 import api from '../api';
+import type { ConvEntry, Message, Person } from '../types';
 import { presenceLine } from './activity';
 import { convTitle, messagePreview, fileSize, duration } from '../labels';
 
-const t = (key, params) => app.translator.trans('ernestdefoe-parley.forum.details.' + key, params);
+const t = (key: string, params: Record<string, unknown> = {}) => app.translator.trans('ernestdefoe-parley.forum.details.' + key, params);
 
 const TABS = ['media', 'files', 'links', 'pins'];
 
@@ -20,8 +22,26 @@ const TABS = ['media', 'files', 'links', 'pins'];
  * the members of a group, and what has been shared in it, a tab at a time.
  * Part of the messages page's chunk, loaded with it.
  */
-export default class Details extends Component {
-  oninit(vnode) {
+export interface DetailsAttrs extends ComponentAttrs {
+  /** The conversation shown. */
+  id: number;
+  onclose: () => void;
+}
+
+/** One tab's list, as far as it has been fetched. */
+interface TabState {
+  items: Message[];
+  hasMore: boolean;
+  loading: boolean;
+}
+
+export default class Details extends Component<DetailsAttrs> {
+  tab!: string;
+  tabs!: Record<string, TabState>;
+  renaming!: boolean;
+  name?: string;
+
+  oninit(vnode: Mithril.Vnode<DetailsAttrs, this>) {
     super.oninit(vnode);
     this.tab = 'media';
     this.tabs = {};
@@ -29,16 +49,17 @@ export default class Details extends Component {
     this.load(this.tab);
   }
 
-  load(tab, more = false) {
+  load(tab: string, more = false) {
     const id = this.attrs.id;
-    const state = (this.tabs[tab] ||= { items: [], hasMore: false, loading: true });
+    const state: TabState = (this.tabs[tab] ||= { items: [], hasMore: false, loading: true });
     state.loading = true;
     const before = more && state.items.length ? state.items[state.items.length - 1].id : null;
 
     api.details(id, tab, before).then((r) => {
       if (r.members) app.parley.members[id] = r.members;
-      state.items = more ? [...state.items, ...r.items] : r.items;
-      state.hasMore = r.hasMore;
+      // Every tab drawn here gets items and hasMore back; only "members" goes without.
+      state.items = more ? [...state.items, ...r.items!] : r.items!;
+      state.hasMore = r.hasMore!;
       state.loading = false;
       m.redraw();
     });
@@ -72,20 +93,20 @@ export default class Details extends Component {
               <label className="pl-photo-edit" title={extractText(t('change_photo'))}>
                 {Icons.camera()}
                 <span className="visually-hidden">{t('change_photo')}</span>
-                <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden onchange={(e) => this.photo(e)} />
+                <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden onchange={(e: Event) => this.photo(e)} />
               </label>
             ) : null}
           </div>
           {this.renaming ? (
-            <form className="pl-rename" onsubmit={(e) => this.rename(e)}>
+            <form className="pl-rename" onsubmit={(e: SubmitEvent) => this.rename(e)}>
               <input
                 className="FormControl"
                 maxlength="80"
                 value={this.name}
                 placeholder={extractText(t('group_name'))}
                 aria-label={extractText(t('group_name'))}
-                oncreate={(v) => v.dom.focus()}
-                oninput={(e) => (this.name = e.target.value)}
+                oncreate={(v: Mithril.VnodeDOM) => (v.dom as HTMLInputElement).focus()}
+                oninput={(e: InputEvent) => (this.name = (e.target as HTMLInputElement).value)}
               />
               <Button type="submit" className="Button Button--primary">
                 {t('save')}
@@ -93,7 +114,7 @@ export default class Details extends Component {
             </form>
           ) : (
             <h3>
-              {isRoom ? room.name : convTitle(summary)}
+              {isRoom ? room!.name : convTitle(summary)}
               {summary.isGroup ? (
                 <Button
                   className="Button Button--icon Button--flat"
@@ -109,7 +130,7 @@ export default class Details extends Component {
           )}
           <p className="pl-details-sub">
             {isRoom
-              ? room.description || ''
+              ? room!.description || ''
               : summary.isGroup
                 ? app.translator.trans('ernestdefoe-parley.forum.window.members_count', { count: summary.memberCount })
                 : presenceLine({ ...peer, ...s.presenceOf(peer.id) })}
@@ -155,7 +176,7 @@ export default class Details extends Component {
             {!members ? (
               <LoadingIndicator size="small" />
             ) : (
-              members.map((p) => (
+              members.map((p: Person) => (
                 <div className="pl-member">
                   {Avatar(p, 32, { dot: true, status: p.online ? s.presenceOf(p.id).status || 'online' : 'offline' })}
                   <span className="pl-member-nm">
@@ -189,7 +210,7 @@ export default class Details extends Component {
 
         <section className="pl-shared">
           <div className="pl-tabs" role="tablist">
-            {TABS.map((tab) => (
+            {TABS.map((tab: string) => (
               <button
                 role="tab"
                 aria-selected={String(this.tab === tab)}
@@ -206,18 +227,18 @@ export default class Details extends Component {
     );
   }
 
-  switchTab(tab) {
+  switchTab(tab: string) {
     this.tab = tab;
     if (!this.tabs[tab] || tab === 'pins') this.load(tab);
   }
 
-  tabBody(conv) {
+  tabBody(conv: ConvEntry) {
     const state = this.tabs[this.tab];
     if (!state || (state.loading && !state.items.length)) return <LoadingIndicator size="small" />;
     if (!state.items.length) return <p className="pl-list-empty">{t('none_' + this.tab)}</p>;
 
-    const open = (msg) => {
-      if (conv.messages.some((x) => x.id === msg.id)) {
+    const open = (msg: Message) => {
+      if (conv.messages.some((x: Message) => x.id === msg.id)) {
         conv.jumpTo = msg.id;
       } else {
         app.parley.load(conv.summary.id, { around: msg.id });
@@ -227,7 +248,7 @@ export default class Details extends Component {
     const items =
       this.tab === 'media' ? (
         <div className="pl-media-grid">
-          {state.items.map((msg) => (
+          {state.items.map((msg: Message) => (
             <a href={api.fileUrl(msg.id)} target="_blank" rel="noopener" className="pl-media-cell">
               {msg.type === 'video' ? (
                 <span className="pl-media-video">
@@ -240,7 +261,7 @@ export default class Details extends Component {
           ))}
         </div>
       ) : (
-        state.items.map((msg) => (
+        state.items.map((msg: Message) => (
           <button className="pl-shared-row" onclick={() => open(msg)}>
             <span className="pl-shared-icon">
               {this.tab === 'links' ? Icons.link() : this.tab === 'pins' ? Icons.pin() : msg.type === 'voice' ? Icons.mic() : Icons.file()}
@@ -248,7 +269,7 @@ export default class Details extends Component {
             <span className="pl-shared-text">
               <span>
                 {this.tab === 'links'
-                  ? (msg.body.match(/https?:\/\/\S+/) || [msg.body])[0]
+                  ? (msg.body!.match(/https?:\/\/\S+/) || [msg.body])[0]
                   : msg.type === 'voice'
                     ? duration((msg.meta || {}).duration)
                     : messagePreview(msg)}
@@ -275,24 +296,26 @@ export default class Details extends Component {
 
   findInChat() {
     // The header's own search button: one search, one place.
-    document.querySelector('.pl-win.page [data-item="search"]')?.click();
+    document.querySelector<HTMLElement>('.pl-win.page [data-item="search"]')?.click();
   }
 
   addPeople() {
     app.modal.show(() => import('./NewConversationModal'), { conversationId: this.attrs.id, members: app.parley.members[this.attrs.id] || [] });
   }
 
-  rename(e) {
+  rename(e: SubmitEvent) {
     e.preventDefault();
-    api.renameGroup(this.attrs.id, this.name).then((r) => {
+    api.renameGroup(this.attrs.id, this.name!).then((r) => {
       this.renaming = false;
       app.parley.groupChanged(r);
     });
   }
 
-  photo(e) {
-    const file = e.target.files[0];
-    e.target.value = '';
+  photo(e: Event) {
+    const input = e.target as HTMLInputElement;
+    // A file input always has a file list.
+    const file = input.files![0];
+    input.value = '';
     if (file) api.groupPhoto(this.attrs.id, file).then((r) => app.parley.groupChanged(r));
   }
 }
