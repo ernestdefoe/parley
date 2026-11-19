@@ -9,6 +9,8 @@ jobs:
       enable_bundlewatch: false
       enable_prettier: true
       enable_typescript: true
+      # tsc --noEmit under strict mode; no separate coverage report.
+      type_coverage_script: ''
       enable_tests: true
 
       frontend_directory: ./js
