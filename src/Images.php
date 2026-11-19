@@ -277,6 +277,17 @@ class Images
         return preg_match(self::NAME, $relative) && $this->disk()->exists($relative) ? $relative : null;
     }
 
+    /**
+     * Delete a stored file. The caller decides it is no longer used: a
+     * forwarded message shares its original's file.
+     */
+    public function remove(string $relative): void
+    {
+        if (preg_match(self::NAME, $relative)) {
+            $this->disk()->delete($relative);
+        }
+    }
+
     public function disk(): Filesystem
     {
         return $this->filesystems->disk(self::DISK);
